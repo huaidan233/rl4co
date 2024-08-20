@@ -19,7 +19,7 @@ batch_size = 3
 # env.render(td, actions)
 
 # Instantiate our environment
-env = landuseOptEnv(generator_params=dict(num_loc=50))
+env = landuseOptEnv(generator_params=dict(num_loc=100))
 
 # Instantiate policy with the embeddings we created above
 emb_dim = 128
@@ -38,9 +38,16 @@ model = AttentionModel(env,
                        train_data_size=100_000,
                        val_data_size=10_000)
 
-new_dataset = env.dataset(512, filename='tests/luopt_100.pkl.npz')
+new_dataset = env.dataset(512, filename='luopt_100.pkl.npz')
 dataloader = model._dataloader(new_dataset, batch_size=512)
 
+trainer = RL4COTrainer(
+    max_epochs=5,
+    accelerator="gpu",
+    devices=1,
+)
+
+trainer.fit(model)
 landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
             'SOHO']
 # Greedy rollouts over untrained model

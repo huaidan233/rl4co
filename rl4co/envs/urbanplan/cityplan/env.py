@@ -64,7 +64,7 @@ class landuseOptEnv(RL4COEnvBase):
         generator_params: parameters for the generator
     """
 
-    name = "landuseOpt"
+    name = 'lop'
 
     def __init__(
         self,
