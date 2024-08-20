@@ -27,9 +27,8 @@ from rl4co.envs.routing import (
 # Scheduling
 from rl4co.envs.scheduling import FFSPEnv, FJSPEnv, SMTWTPEnv
 from rl4co.envs.scheduling.jssp.env import JSSPEnv
-
-# Graph
-from rl4co.envs.graph import MCPEnv, FLPEnv
+from rl4co.envs.urbanplan.MAcityplan.env import MAlanduseOptEnv
+from rl4co.envs.urbanplan.cityplan.env import landuseOptEnv
 
 # Register environments
 ENV_REGISTRY = {
@@ -54,8 +53,8 @@ ENV_REGISTRY = {
     "mdcpdp": MDCPDPEnv,
     "mtvrp": MTVRPEnv,
     "tsp_kopt": TSPkoptEnv,
-    "mcp": MCPEnv,
-    "flp": FLPEnv,
+    "lop": landuseOptEnv,
+    "MAlop": MAlanduseOptEnv,
 }
 
 

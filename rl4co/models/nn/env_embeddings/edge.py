@@ -36,6 +36,7 @@ def env_edge_embedding(env_name: str, config: dict) -> nn.Module:
         "pdp": TSPEdgeEmbedding,
         "mtsp": TSPEdgeEmbedding,
         "smtwtp": NoEdgeEmbedding,
+        "lop": TSPEdgeEmbedding,
     }
 
     if env_name not in embedding_registry:

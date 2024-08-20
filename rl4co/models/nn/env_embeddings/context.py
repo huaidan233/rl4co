@@ -33,6 +33,7 @@ def env_context_embedding(env_name: str, config: dict) -> nn.Module:
         "smtwtp": SMTWTPContext,
         "mdcpdp": MDCPDPContext,
         "mtvrp": MTVRPContext,
+        "lop": LOPContext,
     }
 
     if env_name not in embedding_registry:
@@ -135,6 +136,31 @@ class TSPContext(EnvContext):
             ).view(batch_size, *node_dim)
         return self.project_context(context_embedding)
 
+class LOPContext(EnvContext):
+    """Context embedding for the Landuse Optimization Problem (LOP).
+    Project the following to the embedding space:
+        - current node embedding
+        - current type
+    """
+
+    def __init__(self, embed_dim):
+        super(LOPContext, self).__init__(
+            embed_dim=embed_dim, step_context_dim=embed_dim + 8
+        )
+
+    def _state_embedding(self, embeddings, td):
+        state_embedding = td["current_types_onehot"]
+        return state_embedding
+
+
+    # def forward(self, embeddings, td):
+    #     cur_node_embedding = self._cur_node_embedding(embeddings, td)
+    #     type_embedding = self.proj_type(td["current_type"].unsqueeze(-1))
+    #     area_embedding = self.proj_area(td["areas"].unsqueeze(-1))
+    #     context_embedding = torch.cat(
+    #         [cur_node_embedding, type_embedding, area_embedding], -1
+    #     )
+    #     return self.project_context(context_embedding)
 
 class VRPContext(EnvContext):
     """Context embedding for the Capacitated Vehicle Routing Problem (CVRP).

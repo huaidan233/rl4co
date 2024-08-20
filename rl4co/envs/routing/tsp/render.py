@@ -34,7 +34,7 @@ def render(td, actions=None, ax=None):
 
     # Cat the first node to the end to complete the tour
     locs = torch.cat((locs, locs[0:1]))
-    x, y = locs[:, 0], locs[:, 1]
+    x, y = locs[:, 0].tolist(), locs[:, 1].tolist()
 
     # Plot the visited nodes
     ax.scatter(x, y, color="tab:blue")
