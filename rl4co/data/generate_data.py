@@ -20,6 +20,7 @@ DISTRIBUTIONS_PER_PROBLEM = {
     "op": ["const", "unif", "dist"],
     "mdpp": [None],
     "pdp": [None],
+    "luop": [None],
 }
 
 
@@ -90,6 +91,41 @@ def generate_pdp_data(dataset_size, pdp_size):
         "locs": loc.astype(np.float32),
         "depot": depot.astype(np.float32),
     }
+
+def generate_luop_data(dataset_size, luop_size, fixed_nodes = 3):
+    loc = np.random.uniform(size=(dataset_size, luop_size, 2))
+    # Generate random areas in the range [0, 1]
+    areas = np.random.uniform(size=(dataset_size, luop_size))
+    # Normalize areas to make their sum equal to 1
+    sum_areas = np.sum(areas, axis=1, keepdims=True)
+    # 将每个面积值除以该实例的总和，进行归一化处理
+    areas = areas / sum_areas
+    init_plan = np.ones((dataset_size, luop_size), dtype=np.int64)
+    fixed_node = np.random.randint(0, luop_size, (dataset_size, fixed_nodes))
+    fixed_mask = np.ones((dataset_size, luop_size), dtype=np.bool_)
+
+    fixed_mask[np.arange(dataset_size)[:, None], fixed_node] = False
+    half = fixed_nodes // 2
+    init_plan[np.arange(dataset_size)[:, None], fixed_node[:, :half]] = 4 # "Green Space"
+    init_plan[np.arange(dataset_size)[:, None], fixed_node[:, half:]] = 6 # "Hospital"
+
+    distances = np.linalg.norm(loc[:, :, None, :] - loc[:, None, :, :], axis=-1)
+
+    adjacency_list = np.zeros((dataset_size, luop_size, 5), dtype=np.int64)
+
+    sorted_indices = np.argsort(distances, axis=-1)
+    neighbors_count = 4
+    adjacency_list[:, :, 0] = neighbors_count
+    adjacency_list[:, :, 1:] = sorted_indices[:, :, 1:neighbors_count + 1]
+    return {
+        "locs": loc.astype(np.float32),
+        "areas": areas.astype(np.float32),
+        "init_plan": init_plan.astype(np.int64),
+        "fixed_mask": fixed_mask.astype(np.bool_),
+        "adjacency_list": adjacency_list.astype(np.int64),
+        "distances": distances.astype(np.float32),
+    }
+
 
 
 def generate_op_data(dataset_size, op_size, prize_type="const", max_lengths=None):

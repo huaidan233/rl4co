@@ -37,6 +37,7 @@ def env_init_embedding(env_name: str, config: dict) -> nn.Module:
         "fjsp": FJSPInitEmbedding,
         "jssp": FJSPInitEmbedding,
         "mtvrp": MTVRPInitEmbedding,
+        "lop": lopInitEmbedding,
     }
 
     if env_name not in embedding_registry:
@@ -106,6 +107,29 @@ class MatNetInitEmbedding(nn.Module):
 
         return row_emb, col_emb, dmat
 
+
+class lopInitEmbedding(nn.Module):
+    """Initial embedding for the Landuse Planning Problem (LUP).
+    Embed the following node features to the embedding space:
+        - locs: x, y coordinates of the nodes
+        - landtype: type of land
+        - area: area of the land
+    """
+
+    def __init__(self, embed_dim, linear_bias=True):
+        super(lopInitEmbedding, self).__init__()
+        self.landtype_dim = 8  # Number of land types
+        node_dim = 2 + 1  # x, y, area
+        self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
+    def forward(self, td):
+        locs = td["locs"]
+        # One-hot encode the land types
+        # landtype_onehot = F.one_hot(td["init_plan"], num_classes=self.landtype_dim).float()
+        # Concatenate locs, landtype_onehot and area
+        node_features = torch.cat((locs, td["areas"][..., None]), -1)
+        # Embed the concatenated node features
+        out = self.init_embed(node_features)
+        return out
 
 class VRPInitEmbedding(nn.Module):
     """Initial embedding for the Vehicle Routing Problems (VRP).

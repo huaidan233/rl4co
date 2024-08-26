@@ -75,7 +75,7 @@ class DPPEnv(RL4COEnvBase):
 
         self._make_spec(self.generator)
 
-    def _step(self, td: TensorDict) -> TensorDict:
+    def  _step(self, td: TensorDict) -> TensorDict:
         current_node = td["action"]
 
         # Set available to 0 (i.e., already placed) if the current node is the first node
