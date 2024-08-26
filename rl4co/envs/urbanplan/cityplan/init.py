@@ -696,7 +696,7 @@ def calInterAccessibility_Average(landuselist, landtypeA, landtypeB, interDistan
     #finally, it will return a value of internal accessibility
 
     AllDistance = 0 
-    count = 1
+    count = 0
     for i in range(len(landuselist)):
         if landuselist[i] == landtypeA:
             for j in range(len(landuselist)):
@@ -706,6 +706,54 @@ def calInterAccessibility_Average(landuselist, landtypeA, landtypeB, interDistan
                     count += 1  
     AverDistance = AllDistance/count
     return -AverDistance
+def calInterAccessibility_Average_tensor(landuselist, landtypeA, landtypeB, interDistanceList):
+    '''
+    Calculate Internal Accessibility between multiple land types using tensor operations with batch support.
+    '''
+    # landuselist: Tensor of shape (batch_size, num_landuses)
+    # interDistanceList: Tensor of shape (batch_size, num_landuses, num_landuses)
+    # landtypeA, landtypeB: List or tensor containing multiple land use types
+
+    landtypeA = get_landtype_indices(landtypeA)
+    landtypeB = get_landtype_indices(landtypeB)
+    # Create masks for landtypeA and landtypeB, shape (batch_size, num_landuses)
+    maskA = torch.isin(landuselist, torch.tensor(landtypeA, device=landuselist.device))
+    maskB = torch.isin(landuselist, torch.tensor(landtypeB, device=landuselist.device))
+
+    # Use broadcasting to get the valid distances, shape (batch_size, num_landuses, num_landuses)
+    maskA = maskA.unsqueeze(-1)  # Convert maskA to shape (batch_size, num_landuses, 1)
+    maskB = maskB.unsqueeze(-2)  # Convert maskB to shape (batch_size, 1, num_landuses)
+    valid_distances = interDistanceList * (maskA & maskB)
+    # Calculate the sum and count of valid distances, shape (batch_size,)
+    total_distance = valid_distances.sum(dim=(-1, -2))
+    count = (maskA & maskB).sum(dim=(-1, -2)).float()
+    # Avoid division by zero
+    count = torch.where(count == 0, torch.tensor(1.0, device=count.device), count + 1)
+
+    # Calculate the average distance, shape (batch_size,)
+    avg_distance = total_distance / count
+
+    return -avg_distance  # Return tensor of shape (batch_size,)
+
+
+def get_landtype_indices(input_list):
+    """
+    Convert an input list of land types to a list of indices
+    corresponding to the positions of these land types in the landtype list.
+
+    Parameters:
+    input_list (list): A list of land types.
+
+    Returns:
+    list: A list of indices corresponding to the input land types in the landtype list.
+    """
+    # Find the indices in the landtype list
+    landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education',
+                'Hospital', 'SOHO']
+    indices = [landtype.index(lt) for lt in input_list if lt in landtype]
+
+    return indices
+
 
 def mutaion_random(polygoncount, landtype, fixedID, num_MutationCenter, arealist, parent):
     

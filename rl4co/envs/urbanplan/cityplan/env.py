@@ -22,17 +22,9 @@ import numpy as np
 import torch
 from rl4co.envs.urbanplan.cityplan.generator import landuseOptGenerator
 from rl4co.envs.urbanplan.cityplan.render import render
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 log = get_pylogger(__name__)
 
-CompatibilityTable = [[8.8, 7.3, 7.9, 7.5, 7.4, 4.1, 4.2, 7.4],
-                      [7.3, 8.7, 6.0, 7.1, 8.4, 7.8, 6.2, 7.0],
-                      [7.9, 6.8, 8.6, 6.3, 7.1, 5.6, 5.0, 7.1],
-                      [7.5, 7.1, 6.3, 8.6, 7.3, 4.7, 4.7, 7.4],
-                      [7.4, 8.4, 7.1, 7.3, 8.2, 7.7, 6.9, 7.1],
-                      [4.1, 7.8, 5.6, 4.7, 7.7, 8.4, 5.3, 5.0],
-                      [4.2, 6.2, 5.0, 4.7, 6.9, 5.3, 8.1, 4.7],
-                      [7.4, 7.0, 7.1, 7.4, 7.1, 5.0, 4.7, 8.6]]
 
 landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
             'SOHO']
@@ -77,6 +69,16 @@ class landuseOptEnv(RL4COEnvBase):
             generator = landuseOptGenerator(**generator_params)
         self.generator = generator
         self.generator_params = generator_params
+        self.num_types = 8
+        self.max_steps = 0
+        self.CompatibilityTable = [[8.8, 7.3, 7.9, 7.5, 7.4, 4.1, 4.2, 7.4],
+                                  [7.3, 8.7, 6.0, 7.1, 8.4, 7.8, 6.2, 7.0],
+                                  [7.9, 6.8, 8.6, 6.3, 7.1, 5.6, 5.0, 7.1],
+                                  [7.5, 7.1, 6.3, 8.6, 7.3, 4.7, 4.7, 7.4],
+                                  [7.4, 8.4, 7.1, 7.3, 8.2, 7.7, 6.9, 7.1],
+                                  [4.1, 7.8, 5.6, 4.7, 7.7, 8.4, 5.3, 5.0],
+                                  [4.2, 6.2, 5.0, 4.7, 6.9, 5.3, 8.1, 4.7],
+                                  [7.4, 7.0, 7.1, 7.4, 7.1, 5.0, 4.7, 8.6]]
         self._make_spec(self.generator)
 
     def _reset(self, td: Optional[TensorDict] = None, batch_size: Optional[list] = None) -> TensorDict:
@@ -88,7 +90,7 @@ class landuseOptEnv(RL4COEnvBase):
         action_mask = td["fixed_mask"]
 
         self.num_types = 8
-        self.max_steps = num_loc-3
+        self.max_steps = num_loc - 3
         # initialize the current plan
         current_plan = td["init_plan"]
         #batch_size = current_plan.shape[0]
@@ -145,7 +147,7 @@ class landuseOptEnv(RL4COEnvBase):
         current_plan[batch_indices[valid_indices], current_node[valid_indices]] = current_type[valid_indices]
         # current_plan[batch_indices, current_node] = current_type
         #set the current type to the next type
-        current_types_onehot = torch.zeros((batch_size, 8))
+        # current_types_onehot = torch.zeros((batch_size, self.num_types))
         # for i in range(batch_size):
         #     next_type = self.calc_next_type(current_plan[i], landtype, areas[i], current_type[i].item())
         #     if next_type is None or done[i]:
@@ -195,25 +197,76 @@ class landuseOptEnv(RL4COEnvBase):
         if neighbors.shape[-2] == neighbors.shape[-1]:
             neighbors = self.adj_matrix_to_list(neighbors)
         else:
-            neighbors = neighbors.tolist()
+            neighbors = neighbors
 
         MinMaxCompatibility = [6.0, 8.8]
         MinMaxAccessibility = [-3.0, -1.5]
-
+        neighbors = torch.tensor(neighbors, dtype=torch.long, device=device)  # Shape: [batch_size, num_centers, num_neighbours + 1]
+        CompatibilityTable = torch.tensor(self.CompatibilityTable, dtype=torch.float32, device=device)  # Shape: [num_landuse_types, num_landuse_types]
         # We do the operation in a batch
         # Ensure to calculate reward for each batch
-        batch_size = current_plan.shape[0]
-        rewards = torch.zeros(batch_size)
-        for i in range(batch_size):
-            compatibility = self.calc_compatibility(current_plan[i].tolist(), landtype, neighbors[i], CompatibilityTable)
-            accessibility = self.calc_accessibility(current_plan[i].tolist(), landtype, distances[i].tolist())
-            norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
-                        MinMaxCompatibility[1] - MinMaxCompatibility[0])
-            noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
-                        MinMaxAccessibility[1] - MinMaxAccessibility[0])
-            rewards[i] = norcompatibility + noraccessibility
-            #rewards[i] = compatibility + accessibility
+        compatibility = self.calc_compatibility_tensor(current_plan, neighbors, CompatibilityTable)
+        accessibility = self.calc_accessibility_tensor(current_plan, distances)
+        # 兼容性归一化
+        norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
+                MinMaxCompatibility[1] - MinMaxCompatibility[0])
+        # 可达性归一化
+        noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
+                MinMaxAccessibility[1] - MinMaxAccessibility[0])
+        # for i in range(batch_size):
+        #     compatibility = self.calc_compatibility(current_plan[i].tolist(), landtype, neighbors[i], self.CompatibilityTable)
+        #     accessibility = self.calc_accessibility(current_plan[i].tolist(), landtype, distances[i].tolist())
+        #     norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
+        #                 MinMaxCompatibility[1] - MinMaxCompatibility[0])
+        #     noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
+        #                 MinMaxAccessibility[1] - MinMaxAccessibility[0])
+        #     # if self.isPlanValid(current_plan[i], areas[i]):
+        #     if True:
+        #         rewards[i] = norcompatibility + noraccessibility
+        #     else:
+        #         rewards[i] = norcompatibility + noraccessibility
+        #     print(rewards[i], compatibility, accessibility)
+        rewards = norcompatibility + noraccessibility
         return rewards
+    # def getlastplan(self, actions):
+    #
+    #     for action in actions:
+    #         if action is not None and select_type is not None:
+    #             latest_plan[action] = select_type.item()
+    #             select_type = calc_next_type(latest_plan, landtype, areaslist)
+    #         else:
+    #             break
+    def isPlanValid(self, current_plan, areas):
+        strstate = init.map_to_strings(current_plan.tolist(), landtype)
+        #area_ratios = init.landuse_ratio_tensor(current_plan, areas, current_type)
+        Residential_ratio = init.landuse_ratio(strstate, areas, 'Residential')
+        Commercial_ratio = init.landuse_ratio(strstate, areas, 'Commercial')
+        Education_ratio = init.landuse_ratio(strstate, areas, 'Education')
+        Office_ratio = init.landuse_ratio(strstate, areas, 'Office')
+        SOHO_ratio = init.landuse_ratio(strstate, areas, 'SOHO')
+        RC_ratio = init.landuse_ratio(strstate, areas, 'Residential&Commercial')
+        # 对每个批次进行计算
+        if Education_ratio < 0.02:
+            print("Education")
+            return False
+        if Residential_ratio < 0.2:
+            print("Residential")
+            return False
+        if Commercial_ratio + RC_ratio < 0.1:
+            print("RC_ratio")
+            return False
+        if Commercial_ratio < 0.05:
+            print("Commercial")
+            return False
+        if Office_ratio < 0.05:
+            print("Office")
+            return False
+        if Office_ratio + SOHO_ratio < 0.15:
+            return False
+        # if Residential_ratio + SOHO_ratio + RC_ratio < 0.5:
+        #     return False
+        return True
+
     def adj_matrix_to_list(self, adj_matrix):
         # 初始化邻接表，使用列表的列表存储每个批次的邻接列表
         adj_list = []
@@ -288,6 +341,36 @@ class landuseOptEnv(RL4COEnvBase):
         strstate = init.map_to_strings(plan, landtypes)
         res = init.calCompatibility(landtypes, neighbourlist, strstate, CompatibilityTable)
         return res
+    def calc_compatibility_tensor(self, landuselists, neighbourlists, CompatibilityTable):
+        '''Calculate compatibility for batches of land use lists and neighbour lists using PyTorch tensors.
+        Each batch element contains multiple centers with their respective neighbours.
+        '''
+        # Assuming:
+        # landuselists shape: [batch_size, num_centers]
+        # batch_neighbourlists shape: [batch_size, num_centers, num_neighbours_per_center + 1] (including neighbour count)
+
+        # Remove the neighbour count column and get neighbour indices
+        neighbour_indices = neighbourlists[:, :, 1:]
+        # Create batch indices that match the shape of neighbour_indices
+        # Expand the batch_indices to match the dimensions of neighbour_indices
+        batch_indices = torch.arange(landuselists.shape[0], device=landuselists.device).unsqueeze(1).unsqueeze(2)
+        batch_indices = batch_indices.expand(-1, landuselists.shape[1], 4)
+
+        # Using the indices to gather the land use types of the neighbours
+        neighbour_landuses = landuselists[batch_indices, neighbour_indices]
+
+        # Get the compatibility scores using advanced indexing
+        # CompatibilityTable should be indexed with the current land use and its neighbours' land use types
+        compatibility_scores = CompatibilityTable[landuselists.unsqueeze(2), neighbour_landuses]
+
+        # Sum compatibility scores across neighbours for each center
+        compatibility_sums = compatibility_scores.sum(dim=2)
+
+        # Compute average compatibility per batch element
+        total_compatibility = compatibility_sums.mean(dim=1) / 4  # Division by 4 might be for normalization
+
+        return total_compatibility
+
     def calc_accessibility(self, plan, landtypes, distancelist):
         strstate = init.map_to_strings(plan, landtypes)
         # 计算可及性
@@ -306,7 +389,40 @@ class landuseOptEnv(RL4COEnvBase):
                          + init.calInterAccessibility_Average(strstate,
                                                             'Residential' or 'SOHO' or 'Residential&Commercial',
                                                             'Green Space', distancelist))
-
+        return Accessibility
+    def calc_accessibility_tensor(self, plan, distancelist):
+        # 计算可及性
+        Accessibility = (init.calInterAccessibility_Average_tensor(plan,
+                                                           ['Residential'],
+                                                           ['Commercial'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan,
+                                                              ['Residential'],
+                                                              ['Education'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan,
+                                                            ['Residential'],
+                                                            ['Hospital'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan,
+                                                            ['Residential'],
+                                                            ['Office'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan,
+                                                            ['Residential'],
+                                                            ['Green Space'], distancelist))
+        # Accessibility = (init.calInterAccessibility_Average_tensor(plan,
+        #                                                            ['Residential', 'SOHO', 'Residential&Commercial'],
+        #                                                            ['Commercial', 'Residential&Commercial'],
+        #                                                            distancelist)
+        #                  + init.calInterAccessibility_Average_tensor(plan,
+        #                                                              ['Residential', 'SOHO', 'Residential&Commercial'],
+        #                                                              ['Education'], distancelist)
+        #                  + init.calInterAccessibility_Average_tensor(plan,
+        #                                                              ['Residential', 'SOHO', 'Residential&Commercial'],
+        #                                                              ['Hospital'], distancelist)
+        #                  + init.calInterAccessibility_Average_tensor(plan,
+        #                                                              ['Residential', 'SOHO', 'Residential&Commercial'],
+        #                                                              ['Office', 'SOHO'], distancelist)
+        #                  + init.calInterAccessibility_Average_tensor(plan,
+        #                                                              ['Residential', 'SOHO', 'Residential&Commercial'],
+        #                                                              ['Green Space'], distancelist))
         return Accessibility
     # def calc_next_type(self, current_plan, landtypes, areas):
     #     strstate = init.map_to_strings(current_plan.tolist(), landtypes)

@@ -10,13 +10,21 @@ from rl4co.envs.urbanplan.cityplan import init
 from rl4co.utils.pylogger import get_pylogger
 
 log = get_pylogger(__name__)
-landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
-            'SOHO']
+landusePalette = {'Commercial': 'coral',
+           'Residential': 'peachpuff',
+           'Office': 'indianred',
+           'Residential&Commercial': 'lightsalmon',
+           'Green Space': 'lightgreen',
+           'Education': 'lightskyblue',
+           'Hospital': 'royalblue',
+           'SOHO': 'lightcoral'
+           }
 def render(td, actions=None,ax=None,planout=None):
     if ax is None:
         # Create a plot of the nodes
-        _, ax = plt.subplots()
-
+        fig, ax = plt.subplots(figsize=(10, 6))
+    landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
+                'SOHO']
     td = td.detach().cpu()
 
     # If batch_size greater than 0 , we need to select the first batch element
@@ -38,10 +46,8 @@ def render(td, actions=None,ax=None,planout=None):
             select_type = calc_next_type(latest_plan, landtype, areaslist)
         else:
             break
-
-    colors = plt.cm.get_cmap('tab20', np.unique(current_plan).size)
-    plan_colors = [colors(i) for i in current_plan]
-
+    strplan = init.map_to_strings(latest_plan, landtype)
+    plan_colors = [landusePalette.get(p, 'gray') for p in strplan]
 
     # Plot the visited nodes with colors based on current_plan and sizes based on areas
     ax.scatter(x, y, color=plan_colors, s=areaslist * 5000)  # Adjust the scale as needed
@@ -49,10 +55,15 @@ def render(td, actions=None,ax=None,planout=None):
     # Add arrows between visited nodes as a quiver plot
     # dx, dy = np.diff(x), np.diff(y)
     # ax.quiver(x[:-1], y[:-1], dx, dy, scale_units="xy", angles="xy", scale=1, color="k")
+    # 添加颜色图例并将其放置在右侧
+    handles = [plt.Line2D([0], [0], marker='o', color=color, markersize=10, label=landtype)
+               for landtype, color in landusePalette.items()]
+    ax.legend(handles=handles, loc='center left', bbox_to_anchor=(1, 0.5), title='Land Use Type')
 
     # Setup limits and show
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.05, 1.05)
+    plt.subplots_adjust(right=0.75)  # 调整右边界，给图例留出空间
     plt.show()
     if planout == True:
         return init.map_to_strings(latest_plan, landtype)
@@ -91,6 +102,8 @@ def calc_next_type(current_plan, landtypes, areas):
     else:
         return
 def find_type_index(search_type):
+    landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
+                'SOHO']
     landtype_array = np.array(landtype)
     index = np.where(landtype_array == search_type)[0]
     return index

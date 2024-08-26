@@ -15,6 +15,7 @@ def load_npz_to_tensordict(filename):
     """
     x = np.load(filename)
     x_dict = dict(x)
+    print(x_dict.keys())
     batch_size = x_dict[list(x_dict.keys())[0]].shape[0]
     return TensorDict(x_dict, batch_size=batch_size)
 

@@ -197,6 +197,7 @@ class ConstructivePolicy(nn.Module):
         # Instantiate environment if needed
         if isinstance(env, str) or env is None:
             env_name = self.env_name if env is None else env
+            env_name = 'lop'
             log.info(f"Instantiated environment not provided; instantiating {env_name}")
             env = get_env(env_name)
 

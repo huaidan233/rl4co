@@ -1,3 +1,5 @@
+import numpy as np
+import time
 import torch
 from rl4co.envs.urbanplan.cityplan import init
 from rl4co.envs import landuseOptEnv
@@ -9,7 +11,7 @@ from rl4co.utils import RL4COTrainer
 from rl4co.utils.decoding import random_policy, rollout
 
 batch_size = 3
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # env = landuseOptEnv(generator_params=dict(num_loc=50))
 # reward, td, actions = rollout(env, env.reset(batch_size=[batch_size]), random_policy)
@@ -19,8 +21,7 @@ batch_size = 3
 # env.render(td, actions)
 
 # Instantiate our environment
-env = landuseOptEnv(generator_params=dict(num_loc=100))
-
+env = landuseOptEnv(generator_params=dict(num_loc=50))
 # Instantiate policy with the embeddings we created above
 emb_dim = 128
 policy = AttentionModelPolicy(env_name=env.name, # this is actually not needed since we are initializing the embeddings!
@@ -35,45 +36,49 @@ policy = AttentionModelPolicy(env_name=env.name, # this is actually not needed s
 model = AttentionModel(env,
                        policy=policy,
                        baseline='rollout',
-                       train_data_size=100_000,
-                       val_data_size=10_000)
+                       val_data_size=10)
 
-new_dataset = env.dataset(512, filename='luopt_100.pkl.npz')
+new_dataset = env.dataset(10, filename='luopt_50_100.pkl.npz')
 dataloader = model._dataloader(new_dataset, batch_size=512)
+new_model_checkpoint = AttentionModel.load_from_checkpoint("checkpoints50/epoch_epoch=010.ckpt", strict=False, load_baseline=False)
+policy_new = new_model_checkpoint.policy.to(device)
 
-trainer = RL4COTrainer(
-    max_epochs=5,
-    accelerator="gpu",
-    devices=1,
-)
-
-trainer.fit(model)
+td_init = env.reset(batch_size=[100]).to(device)
+start_time = time.time()
+out = policy_new(td_init.clone(), env, phase="test", decode_type="greedy", return_actions=True)
+end_time = time.time()  # 获取函数运行后的时间（秒）
+elapsed_time = end_time - start_time  # 计算运行时间
+print(f"Time: {elapsed_time}")
+print(f"Tour lengths: {[f'{-r.item():.2f}' for r in out['reward']]}")
+print(np.mean(out['reward'].cpu().detach().numpy()))
+# for td, actions in zip(td_init, out['actions'].cpu()):
+#     env.render(td, actions)
 landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
             'SOHO']
 # Greedy rollouts over untrained model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Greedy rollouts over trained policy (same states as previous plot, with 20 nodes)
-init_states = next(iter(dataloader))[:1]
+init_states = next(iter(dataloader))[:10]
 td_init_generalization = env.reset(init_states).to(device)
 
 
 policy = model.policy.to(device)
-out = policy(td_init_generalization.clone(), env, phase="test", decode_type="greedy", return_actions=True)
+#out = policy(td_init_generalization.clone(), env, phase="test", decode_type="greedy", return_actions=True)
 
 # Plotting
-print(f"Tour lengths: {[f'{-r.item():.2f}' for r in out['reward']]}")
-for td, actions in zip(td_init_generalization, out['actions'].cpu()):
-    env.render(td, actions)
+# print(f"Tour lengths: {[f'{-r.item():.2f}' for r in out['reward']]}")
+# for td, actions in zip(td_init_generalization, out['actions'].cpu()):
+#     env.render(td, actions)
 
 td_init = td_init_generalization.clone()
-print(td_init[0])
-print(td_init[0].get("locs"))
-print(td_init[0].get("areas"))
-print(td_init[0].get("init_plan"))
-print(td_init[0].get("adjacency_list"))
-print(td_init[0].get("distances").tolist())
-print(init.map_to_strings(td_init[0].get("init_plan").tolist(), landtype))
+# print(td_init[0])
+# print(td_init[0].get("locs"))
+# print(td_init[0].get("areas"))
+# print(td_init[0].get("init_plan"))
+# print(td_init[0].get("adjacency_list"))
+# print(td_init[0].get("distances").tolist())
+# print(init.map_to_strings(td_init[0].get("init_plan").tolist(), landtype))
 # policy = model.policy.to(device)
 # out = policy(td_init.clone(), env, phase="test", decode_type="greedy", return_actions=True)
 #
