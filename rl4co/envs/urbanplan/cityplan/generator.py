@@ -86,6 +86,7 @@ class landuseOptGenerator(Generator):
         # Randomly select 'num_fixed' indices for each batch
         fixed_indices = torch.rand((*batch_size, self.num_loc)).argsort(dim=-1)[:, :self.num_fixed]
         fixed_mask.scatter_(1, fixed_indices, torch.tensor(False, dtype=torch.bool).expand_as(fixed_indices))
+
         # for i in range(batch_size[0]):
         #
         #     # Assign fixed nodes to be "Green Space" or "Hospital"
@@ -97,14 +98,7 @@ class landuseOptGenerator(Generator):
         # adjacency_list[0] is the count of neighbors
         # Calculate distances between all locations
 
-        adjacency_list = torch.zeros((*batch_size, self.num_loc, 5), dtype=torch.int64)
-        distances = torch.cdist(locs, locs)  # Calculate pairwise distances for all batches
-        # Sort distances and get the indices of the closest neighbors (excluding self)
-        sorted_indices = distances.argsort(dim=-1)[:, :, 1:5]  # Exclude the first element (distance to itself)
-        # Set the first element of each row in adjacency_list to 4 ("Green Space")
-        adjacency_list[:, :, 0] = 4
-        # Set the remaining elements to the indices of the closest neighbors
-        adjacency_list[:, :, 1:] = sorted_indices
+        # adjacency_list = torch.zeros((*batch_size, self.num_loc, 5), dtype=torch.int64)
         # distances = torch.zeros((*batch_size, self.num_loc, self.num_loc))
         # for i in range(batch_size[0]):
         #     distances[i] = torch.cdist(locs[i], locs[i])
@@ -119,8 +113,6 @@ class landuseOptGenerator(Generator):
                 "areas": areas,
                 "init_plan": init_plan,  # "init_plans": "Green Space" or "Hospital"
                 "fixed_mask": fixed_mask,
-                "adjacency_list": adjacency_list,
-                "distances": distances,
             },
             batch_size=batch_size,
         )

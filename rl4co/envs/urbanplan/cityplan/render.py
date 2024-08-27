@@ -19,10 +19,10 @@ landusePalette = {'Commercial': 'coral',
            'Hospital': 'royalblue',
            'SOHO': 'lightcoral'
            }
-def render(td, actions=None,ax=None,planout=None):
+def render(td, actions=None,ax=None,planout=None,reward=0):
     if ax is None:
         # Create a plot of the nodes
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(8, 6))
     landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
                 'SOHO']
     td = td.detach().cpu()
@@ -42,7 +42,7 @@ def render(td, actions=None,ax=None,planout=None):
     select_type = calc_next_type(latest_plan, landtype, areaslist)
     for action in actions:
         if action is not None and select_type is not None:
-            latest_plan[action] = select_type.item()
+            latest_plan[action] = select_type
             select_type = calc_next_type(latest_plan, landtype, areaslist)
         else:
             break
@@ -64,19 +64,36 @@ def render(td, actions=None,ax=None,planout=None):
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.05, 1.05)
     plt.subplots_adjust(right=0.75)  # 调整右边界，给图例留出空间
+    reward = reward.item()
+    ax.set_title(f'Reward: {reward:.4f}', fontsize=14, fontweight='bold')
     plt.show()
     if planout == True:
         return init.map_to_strings(latest_plan, landtype)
 
-
 def calc_next_type(current_plan, landtypes, areas):
     strstate = init.map_to_strings(current_plan, landtypes)
+    tios = [0.051420568227290915, 0.20078031212484992, 0.05712284913965586, 0.42276910764305725, 0.046318527410964386,
+            0.03221288515406162, 0.06562625050020007, 0.12374949979991996]
+    land_ratios = {}
+
+    for land in landtypes:
+        land_ratios[land] = init.landuse_ratio(strstate, areas, land)
+
+    ratios_list = list(land_ratios.values())
+    return next((index for index, (a_val, b_val) in enumerate(zip(tios, ratios_list)) if b_val < a_val), None)
+
+def calc_next_type_old(current_plan, landtypes, areas):
+    strstate = init.map_to_strings(current_plan, landtypes)
+    landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
+                'SOHO']
+    Commercial_ratio = init.landuse_ratio(strstate, areas, 'Commercial')
     Residential_ratio = init.landuse_ratio(strstate, areas, 'Residential')
     Commercial_ratio = init.landuse_ratio(strstate, areas, 'Commercial')
     Education_ratio = init.landuse_ratio(strstate, areas, 'Education')
     Office_ratio = init.landuse_ratio(strstate, areas, 'Office')
     SOHO_ratio = init.landuse_ratio(strstate, areas, 'SOHO')
     RC_ratio = init.landuse_ratio(strstate, areas, 'Residential&Commercial')
+
     # 对每个批次进行计算
     if Education_ratio < 0.02:
         type = 'Education'
