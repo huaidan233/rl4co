@@ -105,6 +105,18 @@ class landuseOptEnv(RL4COEnvBase):
         # initialize the current node
         current_node = torch.zeros((*batch_size,), dtype=torch.int64, device=device)
 
+        if 'adjacency_list' in td.keys() and 'distances' in td.keys():
+            adjacency_list = td['adjacency_list']
+            distances = td['distances']
+        else:
+            adjacency_list = torch.zeros((*batch_size, num_loc, 5), dtype=torch.int64)
+            distances = torch.cdist(init_locs, init_locs)  # Calculate pairwise distances for all batches
+            # Sort distances and get the indices of the closest neighbors (excluding self)
+            sorted_indices = distances.argsort(dim=-1)[:, :, 1:5]  # Exclude the first element (distance to itself)
+            # Set the first element of each row in adjacency_list to 4 ("Green Space")
+            adjacency_list[:, :, 0] = 4
+            # Set the remaining elements to the indices of the closest neighbors
+            adjacency_list[:, :, 1:] = sorted_indices
         # initialize the action mask (all nodes are available except the fixed nodes)
         # action_mask = torch.ones(
         #     (*batch_size, num_loc), dtype=torch.bool, device=device
@@ -122,6 +134,8 @@ class landuseOptEnv(RL4COEnvBase):
                 "current_plan": current_plan,
                 "current_type": torch.zeros(*batch_size, dtype=torch.int64),
                 "current_types_onehot": current_types_onehot,
+                "adjacency_list": adjacency_list,
+                "distances": distances,
                 "i": i,
                 "action_mask": action_mask,
                 "reward": reward,
@@ -512,8 +526,8 @@ class landuseOptEnv(RL4COEnvBase):
 
         return one_hot
     @staticmethod
-    def render(td: TensorDict, actions: torch.Tensor = None, ax=None, planout=None):
-        return render(td, actions, ax, planout)
+    def render(td: TensorDict, actions: torch.Tensor = None, ax=None, planout=None, reward=0):
+        return render(td, actions, ax, planout, reward)
 
     def close(self) -> None:
         pass

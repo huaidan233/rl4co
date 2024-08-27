@@ -38,12 +38,12 @@ model = AttentionModel(env,
                        baseline='rollout',
                        val_data_size=10)
 
-new_dataset = env.dataset(10, filename='luopt_50_100.pkl.npz')
+new_dataset = env.dataset(10, filename="luopt_50_10.pkl.npz")
 dataloader = model._dataloader(new_dataset, batch_size=512)
 new_model_checkpoint = AttentionModel.load_from_checkpoint("checkpoints50/epoch_epoch=010.ckpt", strict=False, load_baseline=False)
 policy_new = new_model_checkpoint.policy.to(device)
 
-td_init = env.reset(batch_size=[100]).to(device)
+td_init = env.reset(batch_size=[10]).to(device)
 start_time = time.time()
 out = policy_new(td_init.clone(), env, phase="test", decode_type="greedy", return_actions=True)
 end_time = time.time()  # 获取函数运行后的时间（秒）
@@ -51,8 +51,8 @@ elapsed_time = end_time - start_time  # 计算运行时间
 print(f"Time: {elapsed_time}")
 print(f"Tour lengths: {[f'{-r.item():.2f}' for r in out['reward']]}")
 print(np.mean(out['reward'].cpu().detach().numpy()))
-# for td, actions in zip(td_init, out['actions'].cpu()):
-#     env.render(td, actions)
+# for td, actions, reward in zip(td_init, out['actions'].cpu(), out['reward'].cpu()):
+#     env.render(td, actions, reward=reward)
 landtype = ['Commercial', 'Residential', 'Office', 'Residential&Commercial', 'Green Space', 'Education', 'Hospital',
             'SOHO']
 # Greedy rollouts over untrained model
