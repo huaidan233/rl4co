@@ -64,7 +64,7 @@ def render(td, actions=None,ax=None,planout=None,reward=0):
     ax.set_xlim(-0.05, 1.05)
     ax.set_ylim(-0.05, 1.05)
     plt.subplots_adjust(right=0.75)  # 调整右边界，给图例留出空间
-    reward = reward.item()
+    reward = reward
     ax.set_title(f'Reward: {reward:.4f}', fontsize=14, fontweight='bold')
     plt.show()
     if planout == True:
