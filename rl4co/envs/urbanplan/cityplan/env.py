@@ -406,20 +406,16 @@ class landuseOptEnv(RL4COEnvBase):
         return Accessibility
     def calc_accessibility_tensor(self, plan, distancelist):
         # 计算可及性
-        Accessibility = (init.calInterAccessibility_Average_tensor(plan,
-                                                           ['Residential'],
-                                                           ['Commercial'], distancelist)
-                         + init.calInterAccessibility_Average_tensor(plan,
-                                                              ['Residential'],
+        resid = ['Residential', 'SOHO', 'Residential&Commercial']
+        Accessibility = (init.calInterAccessibility_Average_tensor(plan, resid,
+                                                           ['Commercial', 'Residential&Commercial'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan, resid,
                                                               ['Education'], distancelist)
-                         + init.calInterAccessibility_Average_tensor(plan,
-                                                            ['Residential'],
+                         + init.calInterAccessibility_Average_tensor(plan, resid,
                                                             ['Hospital'], distancelist)
-                         + init.calInterAccessibility_Average_tensor(plan,
-                                                            ['Residential'],
-                                                            ['Office'], distancelist)
-                         + init.calInterAccessibility_Average_tensor(plan,
-                                                            ['Residential'],
+                         + init.calInterAccessibility_Average_tensor(plan, resid,
+                                                            ['Office', 'SOHO'], distancelist)
+                         + init.calInterAccessibility_Average_tensor(plan, resid,
                                                             ['Green Space'], distancelist))
         # Accessibility = (init.calInterAccessibility_Average_tensor(plan,
         #                                                            ['Residential', 'SOHO', 'Residential&Commercial'],
@@ -481,7 +477,8 @@ class landuseOptEnv(RL4COEnvBase):
                 return None
             return current_type + 1
     def calc_next_type_tensor(self, current_plan, areas, current_type):
-        tios = [0.051420568227290915, 0.20078031212484992, 0.05712284913965586, 0.42276910764305725,0.046318527410964386,0.03221288515406162,0.06562625050020007,0.12374949979991996]
+        #tios = [0.051420568227290915, 0.20078031212484992, 0.05712284913965586, 0.42276910764305725,0.046318527410964386,0.03221288515406162,0.06562625050020007,0.12374949979991996]
+        tios = [0.34765893, 0.22549535, 0.10341608, 0.13914989, 0.01110495, 0.0232858, 0.01065741, 0.13923156]
         tios = torch.tensor(tios).to(current_plan.device)
         area_ratios = init.landuse_ratio_tensor(current_plan, areas, current_type)
         area_exceeds_mask = area_ratios > tios[current_type]

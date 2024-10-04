@@ -52,7 +52,66 @@ class Cluster:
 
         return coords
 
+class Nor_Cluster:
+    """
+    Multiple gaussian distributed clusters, as in the Solomon benchmark dataset
+    Following the setting in Bi et al. 2022 (https://arxiv.org/abs/2210.07686)
 
+    Args:
+        n_cluster: Number of the gaussian distributed clusters
+    """
+
+    def __init__(self, n_cluster: int = 3):
+        super().__init__()
+        self.lower, self.upper = 0.2, 0.8
+        self.std = 0.07
+        #self.n_cluster = n_cluster
+        self.n_cluster = random.choice(range(1, n_cluster + 1))
+
+    def sample(self, size, n_core):
+
+        batch_size, num_loc, _ = size
+        self.n_cluster = n_core
+        # Generate the centers of the clusters
+        center = self.lower + (self.upper - self.lower) * torch.rand(
+            batch_size, self.n_cluster * 2
+        )
+
+        # Pre-define the coordinates
+        coords = torch.zeros(batch_size, num_loc, 2)
+
+        # Calculate the size of each cluster
+        cluster_sizes = [num_loc // self.n_cluster] * self.n_cluster
+        for i in range(num_loc % self.n_cluster):
+            cluster_sizes[i] += 1
+
+        # Generate the coordinates
+        current_index = 0
+        for i in range(self.n_cluster):
+            means = center[:, i * 2 : (i + 1) * 2]
+            stds = torch.full((batch_size, 2), self.std)
+            points = torch.normal(
+                means.unsqueeze(1).expand(-1, cluster_sizes[i], -1),
+                stds.unsqueeze(1).expand(-1, cluster_sizes[i], -1),
+            )
+            coords[:, current_index : current_index + cluster_sizes[i], :] = points
+            current_index += cluster_sizes[i]
+
+        # Apply Min-Max scaling to spread the points uniformly within [0, 1]
+        coords_min = coords.min(1, keepdim=True).values  # Find the minimum value along each batch
+        coords_max = coords.max(1, keepdim=True).values  # Find the maximum value along each batch
+        coords = (coords - coords_min) / (coords_max - coords_min)  # Min-max normalization
+
+        if self.n_cluster == 1:
+            scale_range = (0.08, 0.92)
+            # Scale coordinates to the desired range (0.1, 0.9)
+            lower, upper = scale_range
+            coords = lower + (upper - lower) * coords  # Rescale to [0.1, 0.9] range
+
+        # Confine the coordinates to range [0, 1]
+        coords.clamp_(0, 1)
+
+        return coords
 class Mixed:
     """
     50% nodes sampled from uniform distribution, 50% nodes sampled from gaussian distribution, as in the Solomon benchmark dataset
@@ -232,7 +291,7 @@ class Mix_Distribution:
         self.lower, self.upper = 0.2, 0.8
         self.std = 0.07
         self.Mixed = Mixed(n_cluster_mix=n_cluster_mix)
-        self.Cluster = Cluster(n_cluster=n_cluster)
+        self.Cluster = Nor_Cluster(n_cluster=n_cluster)
 
     def sample(self, size):
 
@@ -251,11 +310,16 @@ class Mix_Distribution:
             coords[mask] = self.Mixed.sample((n_mixed, num_loc, 2))
 
         # Cluster
-        mask = (p > 0.33) & (p <= 0.66)
+        mask = (p > 0.33) & (p <= 0.50)
         n_cluster = mask.sum().item()
         if n_cluster > 0:
-            coords[mask] = self.Cluster.sample((n_cluster, num_loc, 2))
+            coords[mask] = self.Cluster.sample((n_cluster, num_loc, 2), 3)
 
+        # Cluster
+        mask = (p > 0.50) & (p <= 0.66)
+        n_cluster = mask.sum().item()
+        if n_cluster > 0:
+            coords[mask] = self.Cluster.sample((n_cluster, num_loc, 2), 1)
         # The remaining ones are uniformly distributed
         return coords
 
