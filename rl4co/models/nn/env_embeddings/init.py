@@ -1,6 +1,7 @@
+
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 from tensordict.tensordict import TensorDict
 
 from rl4co.models.nn.ops import PositionalEncoding
@@ -112,21 +113,46 @@ class lopInitEmbedding(nn.Module):
     """Initial embedding for the Landuse Planning Problem (LUP).
     Embed the following node features to the embedding space:
         - locs: x, y coordinates of the nodes
-        - landtype: type of land
-        - area: area of the land
+        - current_plan: init landtype of the nodes
+        - areas: area of the land
     """
 
     def __init__(self, embed_dim, linear_bias=True):
         super(lopInitEmbedding, self).__init__()
         self.landtype_dim = 8  # Number of land types
-        node_dim = 2 + 1  # x, y, area
-        self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
+        node_dim = 2 + self.landtype_dim + 1  # x, y, area
+        self.init_embed = nn.Linear(node_dim, embed_dim, bias=linear_bias)
     def forward(self, td):
+        """
+        Args:
+            td (dict):
+                - "locs": tensor of shape [batch_size, num_nodes, 2]
+                - "current_plan": tensor of shape [batch_size, num_nodes] with integer values [0-7]
+                - "areas": tensor of shape [batch_size, num_nodes]
+        Returns:
+            out (tensor): shape [batch_size, num_nodes, embed_dim]
+        """
+
         locs = td["locs"]
+        areas = td["areas"].unsqueeze(-1)  # [batch_size, num_nodes, 1]
+        current_plan = td["current_plan"]  # [batch_size, num_nodes]
+
+        landtype_onehot = F.one_hot(current_plan, num_classes=self.landtype_dim).float()  # [batch_size, num_nodes, 8]
         # One-hot encode the land types
         # landtype_onehot = F.one_hot(td["init_plan"], num_classes=self.landtype_dim).float()
         # Concatenate locs, landtype_onehot and area
-        node_features = torch.cat((locs, td["areas"][..., None]), -1)
+        # node_features = torch.cat((locs, td["areas"][..., None]), -1)
+        # node_features = self.init_embed(
+        #     torch.cat(
+        #         (
+        #             locs,
+        #             td["areas"][..., None],
+        #             td["current_plan"][..., None],
+        #         ),
+        #         -1,
+        #     )
+        # )
+        node_features = torch.cat((locs, landtype_onehot, areas), dim=-1)  # [batch_size, num_nodes, 11]
         # Embed the concatenated node features
         out = self.init_embed(node_features)
         return out

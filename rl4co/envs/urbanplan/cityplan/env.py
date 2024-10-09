@@ -208,25 +208,42 @@ class landuseOptEnv(RL4COEnvBase):
         current_plan = td["current_plan"]
         distances = td["distances"]
         neighbors = td["adjacency_list"]
+        batch_size = current_plan.shape[0]
         if neighbors.shape[-2] == neighbors.shape[-1]:
             neighbors = self.adj_matrix_to_list(neighbors)
         else:
             neighbors = neighbors
-
         MinMaxCompatibility = [6.0, 8.8]
         MinMaxAccessibility = [-3.0, -1.5]
-        neighbors = torch.tensor(neighbors, dtype=torch.long, device=device)  # Shape: [batch_size, num_centers, num_neighbours + 1]
-        CompatibilityTable = torch.tensor(self.CompatibilityTable, dtype=torch.float32, device=device)  # Shape: [num_landuse_types, num_landuse_types]
-        # We do the operation in a batch
-        # Ensure to calculate reward for each batch
-        compatibility = self.calc_compatibility_tensor(current_plan, neighbors, CompatibilityTable)
-        accessibility = self.calc_accessibility_tensor(current_plan, distances)
-        # 兼容性归一化
-        norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
-                MinMaxCompatibility[1] - MinMaxCompatibility[0])
-        # 可达性归一化
-        noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
-                MinMaxAccessibility[1] - MinMaxAccessibility[0])
+
+        if isinstance(neighbors, list):
+            for i in range(batch_size):
+                rewards = torch.zeros((batch_size, 1), dtype=torch.float32, device=device)
+                compatibility = self.calc_compatibility(current_plan[i].tolist(), landtype, neighbors[i], self.CompatibilityTable)
+                accessibility = self.calc_accessibility(current_plan[i].tolist(), landtype, distances[i].tolist())
+                norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
+                            MinMaxCompatibility[1] - MinMaxCompatibility[0])
+                noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
+                            MinMaxAccessibility[1] - MinMaxAccessibility[0])
+                # if self.isPlanValid(current_plan[i], areas[i]):
+                if True:
+                    rewards[i] = norcompatibility + noraccessibility
+                else:
+                    rewards[i] = norcompatibility + noraccessibility
+        else:
+            neighbors = torch.tensor(neighbors, dtype=torch.long, device=device)  # Shape: [batch_size, num_centers, num_neighbours + 1]
+            CompatibilityTable = torch.tensor(self.CompatibilityTable, dtype=torch.float32, device=device)  # Shape: [num_landuse_types, num_landuse_types]
+            # We do the operation in a batch
+            # Ensure to calculate reward for each batch
+            compatibility = self.calc_compatibility_tensor(current_plan, neighbors, CompatibilityTable)
+            accessibility = self.calc_accessibility_tensor(current_plan, distances)
+            # 兼容性归一化
+            norcompatibility = (compatibility - MinMaxCompatibility[0]) / (
+                    MinMaxCompatibility[1] - MinMaxCompatibility[0])
+            # 可达性归一化
+            noraccessibility = (accessibility - MinMaxAccessibility[0]) / (
+                    MinMaxAccessibility[1] - MinMaxAccessibility[0])
+            rewards = norcompatibility + noraccessibility
         # for i in range(batch_size):
         #     compatibility = self.calc_compatibility(current_plan[i].tolist(), landtype, neighbors[i], self.CompatibilityTable)
         #     accessibility = self.calc_accessibility(current_plan[i].tolist(), landtype, distances[i].tolist())
@@ -240,7 +257,10 @@ class landuseOptEnv(RL4COEnvBase):
         #     else:
         #         rewards[i] = norcompatibility + noraccessibility
         #     print(rewards[i], compatibility, accessibility)
-        rewards = norcompatibility + noraccessibility
+        #print(init.map_to_strings(current_plan[0].tolist(), landtype))
+        # print(rewards)
+        # print(rewards.shape)
+        # print("average reward:", rewards.mean())
         return rewards
     # def getlastplan(self, actions):
     #
@@ -295,6 +315,8 @@ class landuseOptEnv(RL4COEnvBase):
                 for k, is_connected in enumerate(adj_matrix[i, j]):
                     if is_connected:
                         neighbors.append(k)
+                # 在邻居列表的[0]位置插入邻居节点的数量
+                neighbors.insert(0, len(neighbors))
                 # 将当前节点的邻接列表添加到批次的邻接列表中
                 batch_adj_list.append(neighbors)
             # 将当前批次的邻接列表添加到总的邻接表中
