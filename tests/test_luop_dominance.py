@@ -1,5 +1,7 @@
+import subprocess
 from pathlib import Path
 
+import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
@@ -176,3 +178,16 @@ def test_luop_dominance_hydra_experiment_config_targets_new_model():
     assert cfg.model.num_dominance_candidates > 1
     assert cfg.model.baseline == "shared"
     assert cfg.env.sample_objective_weights is False
+
+
+def test_luop_env_config_is_not_hidden_by_gitignore():
+    if not (Path.cwd() / ".git").exists():
+        pytest.skip("git metadata is required for ignore-rule regression check")
+
+    result = subprocess.run(
+        ["git", "check-ignore", "configs/env/luop.yaml"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
