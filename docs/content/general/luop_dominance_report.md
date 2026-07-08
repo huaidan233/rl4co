@@ -141,4 +141,30 @@ Required checks:
 
 ## 4090 Result
 
-Pending remote run.
+Remote smoke completed on `100.111.43.33`:
+
+- Commit: `effbb070ee8222be6cab79bf3e845b3d1f77f7c8`.
+- GPU: NVIDIA GeForce RTX 4090, 24,564 MiB.
+- Python/Torch/CUDA: Python 3.10.20, Torch 2.5.1, CUDA 12.1.
+- Lightning: 2.4.0.
+- Command:
+
+```bash
+python scripts/luop_dominance_4090.py +trainer.num_sanity_val_steps=0
+```
+
+Metrics file:
+`logs/train/runs/2026-07-08_20-25-16/csv/version_0/metrics.csv`.
+
+Observed metrics:
+
+- `train/loss`: final `-0.632765`, range `[-0.842533, -0.166422]`.
+- `train/dominance_reward`: final `0.794702`, range `[0.746968, 0.794702]`.
+- `train/hv_contribution`: final `0.006853`, range `[0.006212, 0.007703]`.
+- `val/pareto_hypervolume`: final `0.251371`, range `[0.176043, 0.283247]`.
+- `val/pareto_front_size`: final `2.335938`, range `[1.843750, 2.335938]`.
+- `val/checkpoint_score`: final `0.351607`, range `[0.177777, 0.396943]`.
+
+The run exited with code 0. `scripts/luop_dominance_4090.py --metrics` confirmed
+finite dominance and Pareto metrics, and `train/dominance_reward` did not
+collapse to a constant.
