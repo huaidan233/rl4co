@@ -1,4 +1,8 @@
+from pathlib import Path
+
 import torch
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
 from rl4co.envs.urbanplan.cityplan.env import landuseOptEnv
 from rl4co.models import LUOPAttentionModel, LUOPDominanceAttentionModel
@@ -157,3 +161,18 @@ def test_luop_weighted_model_remains_importable_and_trainable():
 
     assert torch.isfinite(out["loss"])
     assert "train/reward" in out
+
+
+def test_luop_dominance_hydra_experiment_config_targets_new_model():
+    config_dir = str((Path.cwd() / "configs").resolve())
+    GlobalHydra.instance().clear()
+    with initialize_config_dir(version_base="1.3", config_dir=config_dir):
+        cfg = compose(
+            config_name="main.yaml",
+            overrides=["experiment=cityplan/dominance"],
+        )
+
+    assert cfg.model._target_ == "rl4co.models.LUOPDominanceAttentionModel"
+    assert cfg.model.num_dominance_candidates > 1
+    assert cfg.model.baseline == "shared"
+    assert cfg.env.sample_objective_weights is False
