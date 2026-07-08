@@ -17,6 +17,7 @@ from rl4co.models.zoo.luop_am import (
     LUOPAutoregressivePolicy,
     LUOPConstructivePolicy,
 )
+from rl4co.models.zoo.luop_dominance import LUOPDominanceAttentionModel
 from rl4co.models.zoo.matnet import MatNet, MatNetPolicy
 from rl4co.models.zoo.mdam import MDAM, MDAMPolicy
 from rl4co.models.zoo.mlp import MLPModel, MLPPolicy

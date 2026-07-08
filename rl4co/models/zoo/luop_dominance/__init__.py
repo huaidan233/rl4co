@@ -1,3 +1,4 @@
+from rl4co.models.zoo.luop_dominance.model import LUOPDominanceAttentionModel
 from rl4co.models.zoo.luop_dominance.rewards import (
     crowding_distance,
     dominance_reward,
@@ -6,6 +7,7 @@ from rl4co.models.zoo.luop_dominance.rewards import (
 )
 
 __all__ = [
+    "LUOPDominanceAttentionModel",
     "crowding_distance",
     "dominance_reward",
     "hypervolume_contribution_2d",
