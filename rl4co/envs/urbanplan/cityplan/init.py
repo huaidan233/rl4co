@@ -886,8 +886,3 @@ def mutaion_boundary(neighbourlist, fixedID, num_MutationCenter, arealist, paren
     else:
         return offsprings_temp
 
-
-
-
-
-
