@@ -1,0 +1,64 @@
+# @package _global_
+
+defaults:
+  - override /model: luop_am.yaml
+  - override /env: luop.yaml
+  - override /callbacks: default.yaml
+  - override /trainer: default.yaml
+  - override /logger: wandb.yaml
+
+env:
+  generator_params:
+    num_loc: 50
+  sample_objective_weights: false
+  sample_eval_objective_weights: false
+  eval_objective_weights: [0.5, 0.5]
+
+logger:
+  wandb:
+    project: "rl4co"
+    tags: ["am", "${env.name}"]
+    group: ${env.name}${env.generator_params.num_loc}
+    name: am-${env.name}${env.generator_params.num_loc}
+
+
+model:
+  batch_size: 2048
+  val_batch_size: 2048
+  test_batch_size: 2048
+  train_data_size: 256_000
+  val_data_size: 2_048
+  test_data_size: 2_048
+  optimizer_kwargs:
+    lr: 5e-5
+    weight_decay: 1e-6
+  lr_scheduler:
+    "MultiStepLR"
+  lr_scheduler_kwargs:
+    milestones: [80, 95]
+    gamma: 0.1
+  policy_kwargs:
+    train_decode_type: sampling
+    val_decode_type: greedy
+    test_decode_type: greedy
+    decode_type_first: false
+  pareto_eval_weights:
+    - [1.0, 0.0]
+    - [0.75, 0.25]
+    - [0.5, 0.5]
+    - [0.25, 0.75]
+    - [0.0, 1.0]
+  pareto_reference: [0.0, 0.0]
+  metrics:
+    train: ["loss", "reward", "compatibility_reward", "accessibility_reward"]
+    val: ["reward", "compatibility_reward", "accessibility_reward", "pareto_hypervolume", "pareto_front_size", "checkpoint_score"]
+    test: ["reward", "compatibility_reward", "accessibility_reward", "pareto_hypervolume", "pareto_front_size", "checkpoint_score"]
+
+callbacks:
+  model_checkpoint:
+    monitor: "val/checkpoint_score"
+
+trainer:
+  max_epochs: 100
+
+seed: 1234

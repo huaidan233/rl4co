@@ -1,0 +1,8 @@
+_target_: rl4co.models.LUOPDominanceAttentionModel
+
+baseline: "shared"
+num_dominance_candidates: 4
+rank_reward_scale: 1.0
+hv_reward_scale: 0.25
+crowding_reward_scale: 0.05
+dominated_penalty: 0.25
