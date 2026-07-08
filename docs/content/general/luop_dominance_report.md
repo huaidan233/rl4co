@@ -93,7 +93,19 @@ python -m pytest tests/test_luop_dominance.py -q
 Result:
 
 ```text
-8 passed
+11 passed
+```
+
+Runner regression:
+
+```powershell
+python -m pytest tests/test_luop_dominance_4090_runner.py -q
+```
+
+Result:
+
+```text
+5 passed
 ```
 
 Targeted regression:
@@ -105,7 +117,7 @@ python -m pytest tests/test_luop_dominance.py tests/test_luop_joint_multiobjecti
 Result:
 
 ```text
-11 passed
+14 passed
 ```
 
 Minimal Hydra smoke:
@@ -143,7 +155,7 @@ Required checks:
 
 Remote smoke completed on `100.111.43.33`:
 
-- Commit: `effbb070ee8222be6cab79bf3e845b3d1f77f7c8`.
+- Commit: `4df09586529fdc8885b4ba374e22bdcebe9533a2`.
 - GPU: NVIDIA GeForce RTX 4090, 24,564 MiB.
 - Python/Torch/CUDA: Python 3.10.20, Torch 2.5.1, CUDA 12.1.
 - Lightning: 2.4.0.
@@ -154,7 +166,7 @@ python scripts/luop_dominance_4090.py +trainer.num_sanity_val_steps=0
 ```
 
 Metrics file:
-`logs/train/runs/2026-07-08_20-25-16/csv/version_0/metrics.csv`.
+`logs/train/runs/2026-07-08_20-44-22/csv/version_0/metrics.csv`.
 
 Observed metrics:
 
