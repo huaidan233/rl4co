@@ -108,6 +108,16 @@ Result:
 11 passed
 ```
 
+Minimal Hydra smoke:
+
+```powershell
+python run.py experiment=cityplan/dominance trainer.max_epochs=1 model.batch_size=2 model.val_batch_size=2 model.test_batch_size=2 model.train_data_size=4 model.val_data_size=2 model.test_data_size=2 model.generate_default_data=false env.generator_params.num_loc=4 env.generator_params.num_fixed=0 'env.min_type_ratios=[0,0,0,0,0,0,0,0]' env.val_file=null env.test_file=null model.num_dominance_candidates=2 +model.policy_kwargs.embed_dim=32 +model.policy_kwargs.num_encoder_layers=1 +model.policy_kwargs.num_heads=4 +model.policy_kwargs.feedforward_hidden=64 logger=csv test=false callbacks.rich_progress_bar=null +trainer.num_sanity_val_steps=0
+```
+
+Result: one train epoch and one validation pass completed with finite
+`train/loss`, `train/dominance_reward`, `val/pareto_hypervolume`, and
+`val/pareto_front_size`.
+
 ## 4090 Stability Protocol
 
 Target machine:
@@ -118,7 +128,7 @@ Target machine:
 Suggested smoke command:
 
 ```bash
-python run.py experiment=cityplan/dominance trainer.max_epochs=3 model.batch_size=256 model.train_data_size=1024 model.val_data_size=128 model.test_data_size=128 logger=csv
+python run.py experiment=cityplan/dominance trainer.max_epochs=3 trainer.accelerator=gpu +trainer.devices=1 trainer.precision=16-mixed model.batch_size=256 model.val_batch_size=256 model.test_batch_size=256 model.train_data_size=1024 model.val_data_size=128 model.test_data_size=128 model.generate_default_data=false env.val_file=null env.test_file=null callbacks.rich_progress_bar=null callbacks.learning_rate_monitor=null +trainer.log_every_n_steps=1 logger=csv
 ```
 
 Required checks:
