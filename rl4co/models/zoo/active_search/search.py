@@ -1,7 +1,7 @@
 import time
 
 from functools import partial
-from typing import Any, Union
+from typing import Any
 
 import torch
 
@@ -41,7 +41,7 @@ class ActiveSearch(TransductiveModel):
         self,
         env,
         policy,
-        dataset: Union[Dataset, str],
+        dataset: Dataset | str,
         batch_size: int = 1,
         max_iters: int = 200,
         augment_size: int = 8,
@@ -49,7 +49,7 @@ class ActiveSearch(TransductiveModel):
         num_parallel_runs: int = 1,
         max_runtime: int = 86_400,
         save_path: str = None,
-        optimizer: Union[str, torch.optim.Optimizer, partial] = "Adam",
+        optimizer: str | torch.optim.Optimizer | partial = "Adam",
         optimizer_kwargs: dict = {"lr": 2.6e-4, "weight_decay": 1e-6},
         **kwargs,
     ):
@@ -57,7 +57,7 @@ class ActiveSearch(TransductiveModel):
 
         assert batch_size == 1, "Batch size must be 1 for active search"
 
-        super(ActiveSearch, self).__init__(
+        super().__init__(
             env,
             policy=policy,
             dataset=dataset,
@@ -77,7 +77,7 @@ class ActiveSearch(TransductiveModel):
         - original policy state dict
         """
         log.info("Setting up active search...")
-        super(ActiveSearch, self).setup(stage)
+        super().setup(stage)
 
         # Instantiate augmentation
         self.augmentation = StateAugmentation(
@@ -92,9 +92,7 @@ class ActiveSearch(TransductiveModel):
         dataset_size = len(self.dataset)
         _batch = next(iter(self.train_dataloader()))
         self.problem_size = self.env.reset(_batch)["action_mask"].shape[-1]
-        self.instance_solutions = torch.zeros(
-            dataset_size, self.problem_size * 2, dtype=int
-        )
+        self.instance_solutions = torch.zeros(dataset_size, self.problem_size * 2, dtype=int)
         self.instance_rewards = torch.zeros(dataset_size)
 
     def on_train_batch_start(self, batch: Any, batch_idx: int):
@@ -132,7 +130,6 @@ class ActiveSearch(TransductiveModel):
                 env=self.env,
                 decode_type="multistart_sampling",
                 num_starts=n_start,
-                return_actions=True,
             )
 
             if i == 0:
@@ -175,15 +172,11 @@ class ActiveSearch(TransductiveModel):
 
         return {"max_reward": max_reward, "best_solutions": best_solutions}
 
-    def on_train_batch_end(
-        self, outputs: STEP_OUTPUT, batch: Any, batch_idx: int
-    ) -> None:
+    def on_train_batch_end(self, outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
         """We store the best solution and reward found."""
         max_rewards, best_solutions = outputs["max_reward"], outputs["best_solutions"]
         self.instance_rewards[batch_idx] = max_rewards
-        self.instance_solutions[batch_idx, :] = best_solutions.squeeze(
-            0
-        )  # only one instance
+        self.instance_solutions[batch_idx, :] = best_solutions.squeeze(0)  # only one instance
         log.info(f"Best reward: {max_rewards.mean():.2f}")
 
     def on_train_epoch_end(self) -> None:

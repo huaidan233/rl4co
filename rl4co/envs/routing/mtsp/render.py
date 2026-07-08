@@ -1,6 +1,6 @@
-import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 from matplotlib import colormaps
 
@@ -73,9 +73,7 @@ def render(td, actions=None, ax=None):
         color = cmap(num_agents - agent_idx)
 
         from_node = actions[i]
-        to_node = (
-            actions[i + 1] if i < len(actions) - 1 else actions[0]
-        )  # last goes back to depot
+        to_node = actions[i + 1] if i < len(actions) - 1 else actions[0]  # last goes back to depot
         from_loc = td["locs"][from_node]
         to_loc = td["locs"][to_node]
         ax.plot([from_loc[0], to_loc[0]], [from_loc[1], to_loc[1]], color=color)
@@ -93,3 +91,5 @@ def render(td, actions=None, ax=None):
     ax.set_title("mTSP")
     ax.set_xlabel("x-coordinate")
     ax.set_ylabel("y-coordinate")
+
+    return ax

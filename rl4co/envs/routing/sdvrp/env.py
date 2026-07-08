@@ -1,14 +1,7 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.utils.ops import gather_by_index
 from rl4co.utils.pylogger import get_pylogger
@@ -29,7 +22,7 @@ class SDVRPEnv(CVRPEnv):
 
     Observations:
         - location of the depot.
-        - locations and demand/remaining demand of each customer 
+        - locations and demand/remaining demand of each customer
         - current location of the vehicle.
         - the remaining capacity of the vehicle.
 
@@ -68,19 +61,13 @@ class SDVRPEnv(CVRPEnv):
         selected_demand = gather_by_index(
             td["demand_with_depot"], current_node, dim=-1, squeeze=False
         )[..., :1]
-        delivered_demand = torch.min(
-            selected_demand, td["vehicle_capacity"] - td["used_capacity"]
-        )
+        delivered_demand = torch.min(selected_demand, td["vehicle_capacity"] - td["used_capacity"])
 
         # Increase capacity if depot is not visited, otherwise set to 0
-        used_capacity = (td["used_capacity"] + delivered_demand) * (
-            current_node != 0
-        ).float()
+        used_capacity = (td["used_capacity"] + delivered_demand) * (current_node != 0).float()
 
         # Update demand
-        demand_with_depot = td["demand_with_depot"].scatter_add(
-            -1, current_node, -delivered_demand
-        )
+        demand_with_depot = td["demand_with_depot"].scatter_add(-1, current_node, -delivered_demand)
 
         # Get done
         done = ~(demand_with_depot > 0).any(-1)
@@ -103,8 +90,8 @@ class SDVRPEnv(CVRPEnv):
 
     def _reset(
         self,
-        td: Optional[TensorDict] = None,
-        batch_size: Optional[list] = None,
+        td: TensorDict | None = None,
+        batch_size: list | None = None,
     ) -> TensorDict:
         device = td.device
 
@@ -116,9 +103,7 @@ class SDVRPEnv(CVRPEnv):
                 "demand_with_depot": torch.cat(
                     (torch.zeros_like(td["demand"][..., 0:1]), td["demand"]), -1
                 ),
-                "current_node": torch.zeros(
-                    *batch_size, 1, dtype=torch.long, device=device
-                ),
+                "current_node": torch.zeros(*batch_size, 1, dtype=torch.long, device=device),
                 "used_capacity": torch.zeros((*batch_size, 1), device=device),
                 "vehicle_capacity": torch.full(
                     (*batch_size, 1), self.generator.vehicle_capacity, device=device
@@ -134,9 +119,7 @@ class SDVRPEnv(CVRPEnv):
         mask_loc = (td["demand_with_depot"][..., 1:] == 0) | (
             td["used_capacity"] >= td["vehicle_capacity"]
         )
-        mask_depot = (td["current_node"] == 0).squeeze(-1) & (
-            (mask_loc == 0).int().sum(-1) > 0
-        )
+        mask_depot = (td["current_node"] == 0).squeeze(-1) & ((mask_loc == 0).int().sum(-1) > 0)
         return ~torch.cat((mask_depot[..., None], mask_loc), -1)
 
     @staticmethod
@@ -153,9 +136,9 @@ class SDVRPEnv(CVRPEnv):
         used_cap = torch.zeros_like(td["demand"][..., 0])
         a_prev = None
         for a in actions.transpose(0, 1):
-            assert (
-                a_prev is None or (demands[((a_prev == 0) & (a == 0)), :] == 0).all()
-            ), "Cannot visit depot twice if any nonzero demand"
+            assert a_prev is None or (demands[((a_prev == 0) & (a == 0)), :] == 0).all(), (
+                "Cannot visit depot twice if any nonzero demand"
+            )
             d = torch.min(demands[rng, a], td["vehicle_capacity"].squeeze(-1) - used_cap)
             demands[rng, a] -= d
             used_cap += d
@@ -165,46 +148,46 @@ class SDVRPEnv(CVRPEnv):
 
     def _make_spec(self, generator):
         """Make the observation and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc + 1, 2),
                 dtype=torch.float32,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            demand=BoundedTensorSpec(
+            demand=Bounded(
                 low=generator.min_demand,
                 high=generator.max_demand,
                 shape=(generator.num_loc, 1),  # demand is only for customers
                 dtype=torch.float32,
             ),
-            demand_with_depot=BoundedTensorSpec(
+            demand_with_depot=Bounded(
                 low=generator.min_demand,
                 high=generator.max_demand,
                 shape=(generator.num_loc + 1, 1),
                 dtype=torch.float32,
             ),
-            used_capacity=BoundedTensorSpec(
+            used_capacity=Bounded(
                 low=0,
                 high=generator.vehicle_capacity,
                 shape=(1,),
                 dtype=torch.float32,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc + 1, 1),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc + 1,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)

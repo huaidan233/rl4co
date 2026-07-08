@@ -1,22 +1,13 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
-from rl4co.data.utils import load_npz_to_tensordict
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.ops import gather_by_index, get_distance
 from rl4co.utils.pylogger import get_pylogger
 
 from .generator import SVRPGenerator
-from .render import render
 
 log = get_pylogger(__name__)
 
@@ -36,7 +27,7 @@ class SVRPEnv(RL4COEnvBase):
         - the remaining locations to deliver
         - the visited locations
         - the current step
-    
+
     Constraints:
         - the tour starts and ends at the depot
         - each pickup location must be visited before its corresponding delivery location
@@ -70,37 +61,37 @@ class SVRPEnv(RL4COEnvBase):
 
     def _make_spec(self, generator):
         """Make the observation and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc + 1, 2),
                 dtype=torch.float32,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            skills=BoundedTensorSpec(
+            skills=Bounded(
                 low=generator.min_skill,
                 high=generator.max_skill,
                 shape=(generator.num_loc, 1),
                 dtype=torch.float32,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc + 1, 1),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc + 1,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,), dtype=torch.float32)
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,), dtype=torch.float32)
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     @staticmethod
     def get_action_mask(td: TensorDict) -> torch.Tensor:
@@ -114,9 +105,7 @@ class SVRPEnv(RL4COEnvBase):
         current_tech_skill = gather_by_index(td["techs"], td["current_tech"]).reshape(
             [batch_size, 1]
         )
-        can_service = td["skills"] <= current_tech_skill.unsqueeze(1).expand_as(
-            td["skills"]
-        )
+        can_service = td["skills"] <= current_tech_skill.unsqueeze(1).expand_as(td["skills"])
         mask_loc = td["visited"][..., 1:, :].to(can_service.dtype) | ~can_service
         # Cannot visit the depot if there are still unserved nodes and I either just visited the depot or am the last technician
         mask_depot = (
@@ -151,9 +140,7 @@ class SVRPEnv(RL4COEnvBase):
         td.set("action_mask", self.get_action_mask(td))
         return td
 
-    def _reset(
-        self, td: Optional[TensorDict] = None, batch_size: Optional[list] = None
-    ) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size: list | None = None) -> TensorDict:
         device = td.device
 
         # Create reset TensorDict
@@ -162,12 +149,8 @@ class SVRPEnv(RL4COEnvBase):
                 "locs": torch.cat((td["depot"][:, None, :], td["locs"]), -2),
                 "techs": td["techs"],
                 "skills": td["skills"],
-                "current_node": torch.zeros(
-                    *batch_size, 1, dtype=torch.long, device=device
-                ),
-                "current_tech": torch.zeros(
-                    *batch_size, 1, dtype=torch.long, device=device
-                ),
+                "current_node": torch.zeros(*batch_size, 1, dtype=torch.long, device=device),
+                "current_tech": torch.zeros(*batch_size, 1, dtype=torch.long, device=device),
                 "visited": torch.zeros(
                     (*batch_size, td["locs"].shape[-2] + 1, 1),
                     dtype=torch.uint8,
@@ -192,9 +175,7 @@ class SVRPEnv(RL4COEnvBase):
         locs_ordered = torch.cat(
             [
                 depot,
-                gather_by_index(td["locs"], actions).reshape(
-                    [batch_size, actions.size(-1), 2]
-                ),
+                gather_by_index(td["locs"], actions).reshape([batch_size, actions.size(-1), 2]),
             ],
             dim=1,
         )
@@ -237,19 +218,15 @@ class SVRPEnv(RL4COEnvBase):
 
         # make sure all required skill  levels are met
         indices = torch.nonzero(actions == 0)
-        skills = torch.cat(
-            [torch.zeros(batch_size, 1, 1, device=td.device), td["skills"]], 1
-        )
-        skills_ordered = gather_by_index(skills, actions).reshape(
-            [batch_size, actions.size(-1), 1]
-        )
+        skills = torch.cat([torch.zeros(batch_size, 1, 1, device=td.device), td["skills"]], 1)
+        skills_ordered = gather_by_index(skills, actions).reshape([batch_size, actions.size(-1), 1])
         batch = start = tech = 0
         for each in indices:
             if each[0] > batch:
                 start = tech = 0
                 batch = each[0]
-            assert (
-                skills_ordered[batch, start : each[1]] <= td["techs"][batch, tech]
-            ).all(), "Skill level not met"
+            assert (skills_ordered[batch, start : each[1]] <= td["techs"][batch, tech]).all(), (
+                "Skill level not met"
+            )
             start = each[1] + 1  # skip the depot
             tech += 1

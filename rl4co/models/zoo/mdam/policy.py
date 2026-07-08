@@ -1,5 +1,3 @@
-from typing import Union
-
 from tensordict import TensorDict
 
 from rl4co.envs import RL4COEnvBase, get_env
@@ -51,18 +49,16 @@ class MDAMPolicy(AutoregressivePolicy):
             else decoder
         )
 
-        super(MDAMPolicy, self).__init__(
-            env_name=env_name, encoder=encoder, decoder=decoder
-        )
+        super().__init__(env_name=env_name, encoder=encoder, decoder=decoder)
 
         self.init_embedding = env_init_embedding(env_name, {"embed_dim": embed_dim})
 
     def forward(
         self,
         td: TensorDict,
-        env: Union[str, RL4COEnvBase] = None,
+        env: str | RL4COEnvBase = None,
         phase: str = "train",
-        return_actions: bool = False,
+        return_actions: bool = True,
         **decoder_kwargs,
     ) -> TensorDict:
         embedding = self.init_embedding(td)

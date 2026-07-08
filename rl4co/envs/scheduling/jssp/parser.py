@@ -1,14 +1,13 @@
 from pathlib import Path
-from typing import List, Tuple, Union
 
 import torch
 
 from tensordict import TensorDict
 
-ProcessingData = List[Tuple[int, int]]
+ProcessingData = list[tuple[int, int]]
 
 
-def parse_job_line(line: Tuple[int]) -> Tuple[ProcessingData]:
+def parse_job_line(line: tuple[int]) -> tuple[ProcessingData]:
     """
     Parses a JSSP job data line of the following form:
 
@@ -100,8 +99,8 @@ def read(loc: Path, max_ops=None):
     return td, num_jobs, num_machines, max_ops_per_job
 
 
-def file2lines(loc: Union[Path, str]) -> List[List[int]]:
-    with open(loc, "r") as fh:
+def file2lines(loc: Path | str) -> list[list[int]]:
+    with open(loc) as fh:
         lines = [line for line in fh.readlines() if line.strip()]
 
     def parse_num(word: str):

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -15,23 +14,21 @@ from rl4co.utils.ops import gather_by_index
 
 @dataclass
 class PrecomputedCache:
-    node_embeddings: Union[Tensor, TensorDict]
-    graph_context: Union[Tensor, float]
+    node_embeddings: Tensor | TensorDict
+    graph_context: Tensor | float
     glimpse_key: Tensor
     glimpse_val: Tensor
     logit_key: Tensor
 
 
 class MatNetDecoder(AttentionModelDecoder):
-    def _precompute_cache(self, embeddings: Tuple[Tensor, Tensor], *args, **kwargs):
-        col_emb, row_emb = embeddings
+    def _precompute_cache(self, embeddings: tuple[Tensor, Tensor], *args, **kwargs):
+        row_emb, col_emb = embeddings
         (
             glimpse_key_fixed,
             glimpse_val_fixed,
             logit_key,
-        ) = self.project_node_embeddings(
-            col_emb
-        ).chunk(3, dim=-1)
+        ) = self.project_node_embeddings(col_emb).chunk(3, dim=-1)
 
         # Optionally disable the graph context from the initial embedding as done in POMO
         if self.use_graph_context:
@@ -74,22 +71,18 @@ class MatNetFFSPDecoder(AttentionModelDecoder):
 
         self.no_job_emb = nn.Parameter(torch.rand(1, 1, embed_dim), requires_grad=True)
 
-    def _precompute_cache(self, embeddings: Tuple[Tensor, Tensor], **kwargs):
+    def _precompute_cache(self, embeddings: tuple[Tensor, Tensor], **kwargs):
         job_emb, ma_emb = embeddings
 
         bs, _, emb_dim = job_emb.shape
 
-        job_emb_plus_one = torch.cat(
-            (job_emb, self.no_job_emb.expand((bs, 1, emb_dim))), dim=1
-        )
+        job_emb_plus_one = torch.cat((job_emb, self.no_job_emb.expand((bs, 1, emb_dim))), dim=1)
 
         (
             glimpse_key_fixed,
             glimpse_val_fixed,
             logit_key,
-        ) = self.project_node_embeddings(
-            job_emb_plus_one
-        ).chunk(3, dim=-1)
+        ) = self.project_node_embeddings(job_emb_plus_one).chunk(3, dim=-1)
 
         # Optionally disable the graph context from the initial embedding as done in POMO
         if self.use_graph_context:
@@ -133,7 +126,7 @@ class MultiStageFFSPDecoder(MatNetFFSPDecoder):
         self.cached_embs: PrecomputedCache = None
         self.tanh_clipping = tanh_clipping
 
-    def _precompute_cache(self, embeddings: Tuple[Tensor], **kwargs):
+    def _precompute_cache(self, embeddings: tuple[Tensor], **kwargs):
         self.cached_embs = super()._precompute_cache(embeddings, **kwargs)
 
     def forward(
@@ -142,8 +135,7 @@ class MultiStageFFSPDecoder(MatNetFFSPDecoder):
         decode_type="sampling",
         num_starts: int = 1,
         **decoding_kwargs,
-    ) -> Tuple[Tensor, Tensor, TensorDict]:
-
+    ) -> tuple[Tensor, Tensor, TensorDict]:
         logits, mask = super().forward(td, self.cached_embs, num_starts)
         logprobs = process_logits(
             logits,

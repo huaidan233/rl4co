@@ -1,6 +1,7 @@
 import abc
 
-from typing import Any, Callable, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any
 
 import torch.nn as nn
 
@@ -8,11 +9,7 @@ from tensordict import TensorDict
 from torch import Tensor
 
 from rl4co.envs import RL4COEnvBase, get_env
-from rl4co.utils.decoding import (
-    DecodingStrategy,
-    get_decoding_strategy,
-    get_log_likelihood,
-)
+from rl4co.utils.decoding import DecodingStrategy, get_decoding_strategy, get_log_likelihood
 from rl4co.utils.ops import calculate_entropy
 from rl4co.utils.pylogger import get_pylogger
 
@@ -23,7 +20,7 @@ class ConstructiveEncoder(nn.Module, metaclass=abc.ABCMeta):
     """Base class for the encoder of constructive models"""
 
     @abc.abstractmethod
-    def forward(self, td: TensorDict) -> Tuple[Any, Tensor]:
+    def forward(self, td: TensorDict) -> tuple[Any, Tensor]:
         """Forward pass for the encoder
 
         Args:
@@ -43,7 +40,7 @@ class ConstructiveDecoder(nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def forward(
         self, td: TensorDict, hidden: Any = None, num_starts: int = 0
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         """Obtain logits for current action to the next ones
 
         Args:
@@ -58,7 +55,7 @@ class ConstructiveDecoder(nn.Module, metaclass=abc.ABCMeta):
 
     def pre_decoder_hook(
         self, td: TensorDict, env: RL4COEnvBase, hidden: Any = None, num_starts: int = 0
-    ) -> Tuple[TensorDict, Any, RL4COEnvBase]:
+    ) -> tuple[TensorDict, RL4COEnvBase, Any]:
         """By default, we don't need to do anything here.
 
         Args:
@@ -68,7 +65,7 @@ class ConstructiveDecoder(nn.Module, metaclass=abc.ABCMeta):
             num_starts: Number of starts for multistart decoding
 
         Returns:
-            Tuple containing the updated hidden state, TensorDict, and environment
+            Tuple containing the updated Tensordict, environment, and hidden state
         """
         return td, env, hidden
 
@@ -76,7 +73,7 @@ class ConstructiveDecoder(nn.Module, metaclass=abc.ABCMeta):
 class NoEncoder(ConstructiveEncoder):
     """Default encoder decoder-only models, i.e. autoregressive models that re-encode all the state at each decoding step."""
 
-    def forward(self, td: TensorDict) -> Tuple[Tensor, Tensor]:
+    def forward(self, td: TensorDict) -> tuple[Tensor, Tensor]:
         """Return Nones for the hidden state and initial embeddings"""
         return None, None
 
@@ -121,8 +118,8 @@ class ConstructivePolicy(nn.Module):
 
     def __init__(
         self,
-        encoder: Union[ConstructiveEncoder, Callable],
-        decoder: Union[ConstructiveDecoder, Callable],
+        encoder: ConstructiveEncoder | Callable,
+        decoder: ConstructiveDecoder | Callable,
         env_name: str = "tsp",
         temperature: float = 1.0,
         tanh_clipping: float = 0,
@@ -132,7 +129,7 @@ class ConstructivePolicy(nn.Module):
         test_decode_type: str = "greedy",
         **unused_kw,
     ):
-        super(ConstructivePolicy, self).__init__()
+        super().__init__()
 
         if len(unused_kw) > 0:
             log.error(f"Found {len(unused_kw)} unused kwargs: {unused_kw}")
@@ -157,10 +154,10 @@ class ConstructivePolicy(nn.Module):
     def forward(
         self,
         td: TensorDict,
-        env: Optional[Union[str, RL4COEnvBase]] = None,
+        env: str | RL4COEnvBase | None = None,
         phase: str = "train",
         calc_reward: bool = True,
-        return_actions: bool = False,
+        return_actions: bool = True,
         return_entropy: bool = False,
         return_hidden: bool = False,
         return_init_embeds: bool = False,
@@ -238,9 +235,7 @@ class ConstructivePolicy(nn.Module):
             td = env.step(td)["next"]
             step += 1
             if step > max_steps:
-                log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) duing decoding"
-                )
+                log.error(f"Exceeded maximum number of steps ({max_steps}) duing decoding")
                 break
 
         # Post-decoding hook: used for the final step(s) of the decoding strategy

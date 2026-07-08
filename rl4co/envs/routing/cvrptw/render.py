@@ -1,10 +1,9 @@
-import torch
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 from matplotlib import cm, colormaps
 
-from rl4co.utils.ops import gather_by_index
 from rl4co.utils.pylogger import get_pylogger
 
 log = get_pylogger(__name__)
@@ -89,7 +88,7 @@ def render(td, actions=None, ax=None):
         ax.text(
             locs[node_idx, 0],
             locs[node_idx, 1] - 0.025,
-            f"{demands[node_idx-1].item():.2f}",
+            f"{demands[node_idx - 1].item():.2f}",
             horizontalalignment="center",
             verticalalignment="top",
             fontsize=10,
@@ -129,5 +128,4 @@ def render(td, actions=None, ax=None):
             annotation_clip=False,
         )
 
-    ax.set_xlim(-0.05, 1.05)
-    ax.set_ylim(-0.05, 1.05)
+    return ax

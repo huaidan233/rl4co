@@ -1,4 +1,4 @@
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
@@ -41,13 +41,13 @@ class OPGenerator(Generator):
         num_loc: int = 20,
         min_loc: float = 0.0,
         max_loc: float = 1.0,
-        loc_distribution: Union[int, float, str, type, Callable] = Uniform,
-        depot_distribution: Union[int, float, str, type, Callable] = None,
+        loc_distribution: int | float | str | type | Callable = Uniform,
+        depot_distribution: int | float | str | type | Callable = None,
         min_prize: float = 1.0,
         max_prize: float = 1.0,
-        prize_distribution: Union[int, float, type, Callable] = Uniform,
+        prize_distribution: int | float | type | Callable = Uniform,
         prize_type: str = "dist",
-        max_length: Union[float, torch.Tensor] = None,
+        max_length: float | torch.Tensor = None,
         **kwargs,
     ):
         self.num_loc = num_loc
@@ -62,17 +62,17 @@ class OPGenerator(Generator):
         if kwargs.get("loc_sampler", None) is not None:
             self.loc_sampler = kwargs["loc_sampler"]
         else:
-            self.loc_sampler = get_sampler(
-                "loc", loc_distribution, min_loc, max_loc, **kwargs
-            )
+            self.loc_sampler = get_sampler("loc", loc_distribution, min_loc, max_loc, **kwargs)
 
         # Depot distribution
         if kwargs.get("depot_sampler", None) is not None:
             self.depot_sampler = kwargs["depot_sampler"]
         else:
-            self.depot_sampler = get_sampler(
-                "depot", depot_distribution, min_loc, max_loc, **kwargs
-            ) if depot_distribution is not None else None
+            self.depot_sampler = (
+                get_sampler("depot", depot_distribution, min_loc, max_loc, **kwargs)
+                if depot_distribution is not None
+                else None
+            )
 
         # Prize distribution
         if kwargs.get("prize_sampler", None) is not None:
@@ -117,18 +117,11 @@ class OPGenerator(Generator):
             prize = torch.ones(*batch_size, self.num_loc, device=self.device)
         elif self.prize_type == "unif":
             prize = (
-                1
-                + torch.randint(
-                    0, 100, (*batch_size, self.num_loc), device=self.device
-                ).float()
+                1 + torch.randint(0, 100, (*batch_size, self.num_loc), device=self.device).float()
             ) / 100
         elif self.prize_type == "dist":  # based on the distance to the depot
-            prize = (locs_with_depot[..., 0:1, :] - locs_with_depot[..., 1:, :]).norm(
-                p=2, dim=-1
-            )
-            prize = (
-                1 + (prize / prize.max(dim=-1, keepdim=True)[0] * 99).int()
-            ).float() / 100
+            prize = (locs_with_depot[..., 0:1, :] - locs_with_depot[..., 1:, :]).norm(p=2, dim=-1)
+            prize = (1 + (prize / prize.max(dim=-1, keepdim=True)[0] * 99).int()).float() / 100
         else:
             raise ValueError(f"Invalid prize_type: {self.prize_type}")
 

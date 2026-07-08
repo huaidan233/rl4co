@@ -4,10 +4,14 @@ from rl4co.envs.common.base import RL4COEnvBase
 # EDA
 from rl4co.envs.eda import DPPEnv, MDPPEnv
 
+# Graph
+from rl4co.envs.graph import FLPEnv, MCPEnv
+
 # Routing
 from rl4co.envs.routing import (
     ATSPEnv,
     CVRPEnv,
+    CVRPMVCEnv,
     CVRPTWEnv,
     DenseRewardTSPEnv,
     MDCPDPEnv,
@@ -18,6 +22,7 @@ from rl4co.envs.routing import (
     PDPEnv,
     PDPRuinRepairEnv,
     SDVRPEnv,
+    SHPPEnv,
     SPCTSPEnv,
     SVRPEnv,
     TSPEnv,
@@ -25,8 +30,9 @@ from rl4co.envs.routing import (
 )
 
 # Scheduling
-from rl4co.envs.scheduling import FFSPEnv, FJSPEnv, SMTWTPEnv
-from rl4co.envs.scheduling.jssp.env import JSSPEnv
+from rl4co.envs.scheduling import FFSPEnv, FJSPEnv, JSSPEnv, SMTWTPEnv
+
+# Urban planning
 from rl4co.envs.urbanplan.MAcityplan.env import MAlanduseOptEnv
 from rl4co.envs.urbanplan.cityplan.env import landuseOptEnv
 
@@ -35,6 +41,7 @@ ENV_REGISTRY = {
     "atsp": ATSPEnv,
     "cvrp": CVRPEnv,
     "cvrptw": CVRPTWEnv,
+    "cvrpmvc": CVRPMVCEnv,
     "dpp": DPPEnv,
     "ffsp": FFSPEnv,
     "jssp": JSSPEnv,
@@ -46,6 +53,7 @@ ENV_REGISTRY = {
     "pdp": PDPEnv,
     "pdp_ruin_repair": PDPRuinRepairEnv,
     "sdvrp": SDVRPEnv,
+    "shpp": SHPPEnv,
     "svrp": SVRPEnv,
     "spctsp": SPCTSPEnv,
     "tsp": TSPEnv,

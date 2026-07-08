@@ -1,4 +1,5 @@
-from typing import Any, Union
+from collections.abc import Callable
+from typing import Any
 
 import torch.nn as nn
 
@@ -37,11 +38,11 @@ class SymNCO(REINFORCE):
     def __init__(
         self,
         env: RL4COEnvBase,
-        policy: Union[nn.Module, SymNCOPolicy] = None,
+        policy: nn.Module | SymNCOPolicy = None,
         policy_kwargs: dict = {},
         baseline: str = "symnco",
         num_augment: int = 4,
-        augment_fn: Union[str, callable] = "symmetric",
+        augment_fn: str | Callable = "symmetric",
         feats: list = None,
         alpha: float = 0.2,
         beta: float = 1,
@@ -72,9 +73,7 @@ class SymNCO(REINFORCE):
             for phase in ["train", "val", "test"]:
                 self.set_decode_type_multistart(phase)
 
-    def shared_step(
-        self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
-    ):
+    def shared_step(self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None):
         td = self.env.reset(batch)
         n_aug, n_start = self.num_augment, self.num_starts
         n_start = get_num_starts(td, self.env.name) if n_start is None else n_start
@@ -86,13 +85,14 @@ class SymNCO(REINFORCE):
         # Evaluate policy
         out = self.policy(td, self.env, phase=phase, num_starts=n_start)
 
-        # Unbatchify reward to [batch_size, n_start, n_aug].
-        reward = unbatchify(out["reward"], (n_start, n_aug))
+        # Unbatchify reward to [batch_size, n_aug, n_start].
+        unbatch_dims = (n_aug, n_start)
+        reward = unbatchify(out["reward"], unbatch_dims)
 
         # Main training loss
         if phase == "train":
             # [batch_size, n_start, n_aug]
-            ll = unbatchify(out["log_likelihood"], (n_start, n_aug))
+            ll = unbatchify(out["log_likelihood"], unbatch_dims)
 
             # Calculate losses: problem symmetricity, solution symmetricity, invariance
             loss_ps = problem_symmetricity_loss(reward, ll) if n_start > 1 else 0
@@ -117,10 +117,8 @@ class SymNCO(REINFORCE):
 
                 # Reshape batch to [batch, n_start, n_aug]
                 if out.get("actions", None) is not None:
-                    actions = unbatchify(out["actions"], (n_start, n_aug))
-                    out.update(
-                        {"best_multistart_actions": gather_by_index(actions, max_idxs)}
-                    )
+                    actions = unbatchify(out["actions"], unbatch_dims)
+                    out.update({"best_multistart_actions": gather_by_index(actions, max_idxs)})
                     out["actions"] = actions
 
             # Get augmentation score only during inference
@@ -140,3 +138,25 @@ class SymNCO(REINFORCE):
 
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
+
+    @classmethod
+    def load_from_checkpoint(
+        cls,
+        checkpoint_path,
+        map_location=None,
+        hparams_file=None,
+        strict=False,
+        load_baseline=True,
+        **kwargs,
+    ):
+        if kwargs.pop("baseline", "symnco") != "symnco":
+            log.warning("SymNCO only supports custom-symnco baseline. Setting to 'symnco'.")
+        kwargs["baseline"] = "symnco"
+        return super().load_from_checkpoint(
+            checkpoint_path,
+            map_location,
+            hparams_file,
+            strict,
+            load_baseline,
+            **kwargs,
+        )

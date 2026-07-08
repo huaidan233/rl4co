@@ -26,12 +26,12 @@ def on_startup(*args, **kwargs):
     def append_tricks_to_readme(file_path):
         # read the tricks from docs/overrides/fancylogo.txt
         # and put them at the beginning of the file
-        with open("docs/overrides/fancylogo.txt", "r") as fancylogo:
+        with open("docs/overrides/fancylogo.txt") as fancylogo:
             tricks = fancylogo.read()
         if not os.path.exists(file_path):
             print(f"Error: The file {file_path} does not exist.")
             return
-        with open(file_path, "r") as original:
+        with open(file_path) as original:
             data = original.read()
         # remove first 33 lines. yeah, it's a hack to remove unneded stuff lol
         data = "\n".join(data.split("\n")[33:])
@@ -41,10 +41,10 @@ def on_startup(*args, **kwargs):
 
     append_tricks_to_readme("README.md")
 
-    # Create CNAME file with content "rl4.co"
-    log.info("Creating CNAME file with content 'rl4.co'")
+    # Create CNAME file with content "rl4co.ai4co.org"
+    log.info("Creating CNAME file with content 'rl4co.ai4co.org'")
     with open("CNAME", "w") as f:
-        f.write("rl4.co")
+        f.write("rl4co.ai4co.org")
 
 
 def on_shutdown(*args, **kwargs):

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from tensordict.tensordict import TensorDict
 
 from rl4co.models.nn.ops import PositionalEncoding
+from rl4co.utils.ops import batched_scatter_sum, cartesian_to_polar
 
 
 def env_init_embedding(env_name: str, config: dict) -> nn.Module:
@@ -22,6 +23,7 @@ def env_init_embedding(env_name: str, config: dict) -> nn.Module:
         "matnet": MatNetInitEmbedding,
         "cvrp": VRPInitEmbedding,
         "cvrptw": VRPTWInitEmbedding,
+        "cvrpmvc": VRPInitEmbedding,
         "svrp": SVRPInitEmbedding,
         "sdvrp": VRPInitEmbedding,
         "pctsp": PCTSPInitEmbedding,
@@ -39,6 +41,9 @@ def env_init_embedding(env_name: str, config: dict) -> nn.Module:
         "jssp": FJSPInitEmbedding,
         "mtvrp": MTVRPInitEmbedding,
         "lop": lopInitEmbedding,
+        "shpp": TSPInitEmbedding,
+        "flp": FLPInitEmbedding,
+        "mcp": MCPInitEmbedding,
     }
 
     if env_name not in embedding_registry:
@@ -56,7 +61,7 @@ class TSPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(TSPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
 
@@ -165,7 +170,7 @@ class VRPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True, node_dim: int = 3):
-        super(VRPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = node_dim  # 3: x, y, demand
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)  # depot embedding
@@ -175,9 +180,7 @@ class VRPInitEmbedding(nn.Module):
         depot, cities = td["locs"][:, :1, :], td["locs"][:, 1:, :]
         depot_embedding = self.init_embed_depot(depot)
         # [batch, n_city, 2, batch, n_city, 1]  -> [batch, n_city, embed_dim]
-        node_embeddings = self.init_embed(
-            torch.cat((cities, td["demand"][..., None]), -1)
-        )
+        node_embeddings = self.init_embed(torch.cat((cities, td["demand"][..., None]), -1))
         # [batch, n_city+1, embed_dim]
         out = torch.cat((depot_embedding, node_embeddings), -2)
         return out
@@ -186,7 +189,7 @@ class VRPInitEmbedding(nn.Module):
 class VRPTWInitEmbedding(VRPInitEmbedding):
     def __init__(self, embed_dim, linear_bias=True, node_dim: int = 6):
         # node_dim = 6: x, y, demand, tw start, tw end, service time
-        super(VRPTWInitEmbedding, self).__init__(embed_dim, linear_bias, node_dim)
+        super().__init__(embed_dim, linear_bias, node_dim)
 
     def forward(self, td):
         depot, cities = td["locs"][:, :1, :], td["locs"][:, 1:, :]
@@ -195,16 +198,61 @@ class VRPTWInitEmbedding(VRPInitEmbedding):
         # embeddings
         depot_embedding = self.init_embed_depot(depot)
         node_embeddings = self.init_embed(
-            torch.cat(
-                (cities, td["demand"][..., None], time_windows, durations[..., None]), -1
-            )
+            torch.cat((cities, td["demand"][..., None], time_windows, durations[..., None]), -1)
         )
         return torch.cat((depot_embedding, node_embeddings), -2)
 
 
+class VRPPolarInitEmbedding(nn.Module):
+    """Initial embedding for the Vehicle Routing Problems (VRP).
+    Embed the following node features to the embedding space, based on polar coordinates:
+        - locs: r, theta coordinates of the nodes, with the depot as the origin
+        - demand: demand of the customers
+    """
+
+    def __init__(
+        self,
+        embed_dim,
+        linear_bias=True,
+        node_dim: int = 3,
+        attach_cartesian_coords=False,
+    ):
+        super().__init__()
+        self.node_dim = node_dim + (
+            2 if attach_cartesian_coords else 0
+        )  # 3: r, theta, demand; 5: r, theta, demand, x, y;
+        self.attach_cartesian_coords = attach_cartesian_coords
+        self.init_embed = nn.Linear(self.node_dim, embed_dim, linear_bias)
+        self.init_embed_depot = nn.Linear(self.node_dim, embed_dim, linear_bias)  # depot embedding
+
+    def forward(self, td):
+        with torch.no_grad():
+            locs = td["locs"]
+            polar_locs = cartesian_to_polar(locs, locs[..., 0:1, :])
+            td["polar_locs"] = polar_locs
+
+            demand = td["demand"]
+            demand_with_depot = torch.concat(
+                (torch.zeros(demand.shape[0], 1, device=demand.device), demand),
+                dim=-1,
+            ).unsqueeze(-1)
+
+            if self.attach_cartesian_coords:
+                x = torch.concat((polar_locs, demand_with_depot, locs), dim=-1)
+            else:
+                x = torch.concat((polar_locs, demand_with_depot), dim=-1)
+
+        depot, cities = x[:, :1, :], x[:, 1:, :]
+        depot_embedding = self.init_embed_depot(depot)
+        node_embeddings = self.init_embed(cities)
+
+        out = torch.cat((depot_embedding, node_embeddings), -2)
+        return out
+
+
 class SVRPInitEmbedding(nn.Module):
     def __init__(self, embed_dim, linear_bias=True, node_dim: int = 3):
-        super(SVRPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = node_dim  # 3: x, y, skill
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)  # depot embedding
@@ -230,7 +278,7 @@ class PCTSPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(PCTSPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 4  # x, y, prize, penalty
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)
@@ -261,7 +309,7 @@ class OPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(OPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 3  # x, y, prize
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)  # depot embedding
@@ -290,16 +338,14 @@ class DPPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(DPPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed = nn.Linear(node_dim, embed_dim // 2, linear_bias)  # locs
         self.init_embed_probe = nn.Linear(1, embed_dim // 2, linear_bias)  # probe
 
     def forward(self, td):
         node_embeddings = self.init_embed(td["locs"])
-        probe_embedding = self.init_embed_probe(
-            self._distance_probe(td["locs"], td["probe"])
-        )
+        probe_embedding = self.init_embed_probe(self._distance_probe(td["locs"], td["probe"]))
         return torch.cat([node_embeddings, probe_embedding], -1)
 
     def _distance_probe(self, locs, probe):
@@ -316,12 +362,10 @@ class MDPPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(MDPPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)  # locs
-        self.init_embed_probe_distance = nn.Linear(
-            1, embed_dim, linear_bias
-        )  # probe_distance
+        self.init_embed_probe_distance = nn.Linear(1, embed_dim, linear_bias)  # probe_distance
         self.project_out = nn.Linear(embed_dim * 2, embed_dim, linear_bias)
 
     def forward(self, td):
@@ -335,9 +379,7 @@ class MDPPInitEmbedding(nn.Module):
         min_dist, _ = torch.min(dist, dim=1)
         min_probe_dist_embedding = self.init_embed_probe_distance(min_dist[..., None])
 
-        return self.project_out(
-            torch.cat([node_embeddings, min_probe_dist_embedding], -1)
-        )
+        return self.project_out(torch.cat([node_embeddings, min_probe_dist_embedding], -1))
 
 
 class PDPInitEmbedding(nn.Module):
@@ -348,7 +390,7 @@ class PDPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(PDPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)
         self.init_embed_pick = nn.Linear(node_dim * 2, embed_dim, linear_bias)
@@ -376,7 +418,7 @@ class MTSPInitEmbedding(nn.Module):
 
     def __init__(self, embed_dim, linear_bias=True):
         """NOTE: new made by Fede. May need to be checked"""
-        super(MTSPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)  # depot embedding
@@ -396,7 +438,7 @@ class SMTWTPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(SMTWTPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 3  # job_due_time, job_weight, job_process_time
         self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
 
@@ -417,15 +459,15 @@ class MDCPDPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(MDCPDPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed_depot = nn.Linear(2, embed_dim, linear_bias)
         self.init_embed_pick = nn.Linear(node_dim * 2, embed_dim, linear_bias)
         self.init_embed_delivery = nn.Linear(node_dim, embed_dim, linear_bias)
 
     def forward(self, td):
-        num_depots = td["capacity"].size(-1)
-        depot, locs = td["locs"][..., 0:num_depots, :], td["locs"][..., num_depots:, :]
+        num_agents = td["capacity"].size(-1)
+        depot, locs = td["locs"][..., 0:num_agents, :], td["locs"][..., num_agents:, :]
         num_locs = locs.size(-2)
         pick_feats = torch.cat(
             [locs[:, : num_locs // 2, :], locs[:, num_locs // 2 :, :]], -1
@@ -446,7 +488,7 @@ class JSSPInitEmbedding(nn.Module):
         scaling_factor: int = 1000,
         num_op_feats=5,
     ):
-        super(JSSPInitEmbedding, self).__init__()
+        super().__init__()
         self.embed_dim = embed_dim
         self.scaling_factor = scaling_factor
         self.init_ops_embed = nn.Linear(num_op_feats, embed_dim, linear_bias)
@@ -533,7 +575,7 @@ class FJSPMatNetInitEmbedding(JSSPInitEmbedding):
 class MTVRPInitEmbedding(VRPInitEmbedding):
     def __init__(self, embed_dim, linear_bias=True, node_dim: int = 7):
         # node_dim = 7: x, y, demand_linehaul, demand_backhaul, tw start, tw end, service time
-        super(MTVRPInitEmbedding, self).__init__(embed_dim, linear_bias, node_dim)
+        super().__init__(embed_dim, linear_bias, node_dim)
 
     def forward(self, td):
         depot, cities = td["locs"][:, :1, :], td["locs"][:, 1:, :]
@@ -560,3 +602,25 @@ class MTVRPInitEmbedding(VRPInitEmbedding):
             )
         )
         return torch.cat((depot_embedding, node_embeddings), -2)
+
+
+class FLPInitEmbedding(nn.Module):
+    def __init__(self, embed_dim: int):
+        super().__init__()
+        self.projection = nn.Linear(2, embed_dim, bias=True)
+
+    def forward(self, td: TensorDict):
+        hdim = self.projection(td["locs"])
+        return hdim
+
+
+class MCPInitEmbedding(nn.Module):
+    def __init__(self, embed_dim: int):
+        super().__init__()
+        self.projection_items = nn.Linear(1, embed_dim, bias=True)
+
+    def forward(self, td: TensorDict):
+        items_embed = self.projection_items(td["weights"].unsqueeze(-1))
+        # sum pooling
+        membership_emb = batched_scatter_sum(items_embed, td["membership"].long())
+        return membership_emb

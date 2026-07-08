@@ -1,6 +1,6 @@
 import abc
 
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
@@ -33,7 +33,7 @@ class Generator(metaclass=abc.ABCMeta):
 
 def get_sampler(
     val_name: str,
-    distribution: Union[int, float, str, type, Callable],
+    distribution: int | float | str | type | Callable,
     low: float = 0,
     high: float = 1.0,
     **kwargs,
@@ -61,29 +61,27 @@ def get_sampler(
     elif distribution == Uniform or distribution == "uniform":
         return Uniform(low=low, high=high)
     elif distribution == Normal or distribution == "normal" or distribution == "gaussian":
-        assert (
-            kwargs.get(val_name + "_mean", None) is not None
-        ), "mean is required for Normal distribution"
-        assert (
-            kwargs.get(val_name + "_std", None) is not None
-        ), "std is required for Normal distribution"
+        assert kwargs.get(val_name + "_mean", None) is not None, (
+            "mean is required for Normal distribution"
+        )
+        assert kwargs.get(val_name + "_std", None) is not None, (
+            "std is required for Normal distribution"
+        )
         return Normal(loc=kwargs[val_name + "_mean"], scale=kwargs[val_name + "_std"])
     elif distribution == Exponential or distribution == "exponential":
-        assert (
-            kwargs.get(val_name + "_rate", None) is not None
-        ), "rate is required for Exponential/Poisson distribution"
+        assert kwargs.get(val_name + "_rate", None) is not None, (
+            "rate is required for Exponential/Poisson distribution"
+        )
         return Exponential(rate=kwargs[val_name + "_rate"])
     elif distribution == Poisson or distribution == "poisson":
-        assert (
-            kwargs.get(val_name + "_rate", None) is not None
-        ), "rate is required for Exponential/Poisson distribution"
+        assert kwargs.get(val_name + "_rate", None) is not None, (
+            "rate is required for Exponential/Poisson distribution"
+        )
         return Poisson(rate=kwargs[val_name + "_rate"])
     elif distribution == "center":
         return Uniform(low=(high - low) / 2, high=(high - low) / 2)
     elif distribution == "corner":
-        return Uniform(
-            low=low, high=low
-        )  # todo: should be also `low, high` and any other corner
+        return Uniform(low=low, high=low)  # todo: should be also `low, high` and any other corner
     elif isinstance(distribution, Callable):
         return distribution(**kwargs)
     elif distribution == "gaussian_mixture":

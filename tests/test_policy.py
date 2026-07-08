@@ -20,6 +20,8 @@ from rl4co.utils.test_utils import generate_env_data
         "dpp",
         "mdpp",
         "smtwtp",
+        "flp",
+        "mcp",
     ],
 )
 def test_am_policy(env_name, size=20, batch_size=2):
@@ -61,9 +63,7 @@ def test_beam_search(env_name, select_best, size=20, batch_size=2):
     td = env.reset(x)
     policy = AttentionModelPolicy(env_name=env.name)
     beam_width = size // 2 if env.name in ["pdp"] else size
-    out = policy(
-        td, env, decode_type="beam_search", beam_width=beam_width, select_best=select_best
-    )
+    out = policy(td, env, decode_type="beam_search", beam_width=beam_width, select_best=select_best)
 
     if select_best:
         expected_shape = (batch_size,)

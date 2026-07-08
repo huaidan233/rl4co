@@ -43,9 +43,7 @@ def render(td, actions=None, ax=None):
     dx, dy = np.diff(x), np.diff(y)
     ax.quiver(x[:-1], y[:-1], dx, dy, scale_units="xy", angles="xy", scale=1, color="k")
 
-    # Setup limits and show
-    ax.set_xlim(-0.05, 1.05)
-    ax.set_ylim(-0.05, 1.05)
+    return ax
 
 
 def render_improvement(td, current_soltuion, best_soltuion):
@@ -58,16 +56,10 @@ def render_improvement(td, current_soltuion, best_soltuion):
         if ax == ax1:
             ax.axis([-0.05, 1.05] * 2)
             # plot the nodes
-            ax.scatter(
-                coordinates[:, 0], coordinates[:, 1], marker="H", s=55, c="blue", zorder=2
-            )
+            ax.scatter(coordinates[:, 0], coordinates[:, 1], marker="H", s=55, c="blue", zorder=2)
             # plot the tour
-            real_seq_coordinates = coordinates.gather(
-                0, real_seq[0].unsqueeze(1).repeat(1, 2)
-            )
-            real_seq_coordinates = torch.cat(
-                (real_seq_coordinates, real_seq_coordinates[:1]), 0
-            )
+            real_seq_coordinates = coordinates.gather(0, real_seq[0].unsqueeze(1).repeat(1, 2))
+            real_seq_coordinates = torch.cat((real_seq_coordinates, real_seq_coordinates[:1]), 0)
             ax.plot(
                 real_seq_coordinates[:, 0],
                 real_seq_coordinates[:, 1],
@@ -84,16 +76,10 @@ def render_improvement(td, current_soltuion, best_soltuion):
         else:
             ax.axis([-0.05, 1.05] * 2)
             # plot the nodes
-            ax.scatter(
-                coordinates[:, 0], coordinates[:, 1], marker="H", s=55, c="blue", zorder=2
-            )
+            ax.scatter(coordinates[:, 0], coordinates[:, 1], marker="H", s=55, c="blue", zorder=2)
             # plot the tour
-            real_best_coordinates = coordinates.gather(
-                0, real_best[0].unsqueeze(1).repeat(1, 2)
-            )
-            real_best_coordinates = torch.cat(
-                (real_best_coordinates, real_best_coordinates[:1]), 0
-            )
+            real_best_coordinates = coordinates.gather(0, real_best[0].unsqueeze(1).repeat(1, 2))
+            real_best_coordinates = torch.cat((real_best_coordinates, real_best_coordinates[:1]), 0)
             ax.plot(
                 real_best_coordinates[:, 0],
                 real_best_coordinates[:, 1],
@@ -108,3 +94,5 @@ def render_improvement(td, current_soltuion, best_soltuion):
                 )
             ax.set_title("Best Solution")
     plt.tight_layout()
+
+    return ax

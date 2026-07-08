@@ -1,5 +1,4 @@
 from math import factorial
-from typing import List
 
 import torch
 import torch.nn as nn
@@ -8,11 +7,7 @@ from tensordict import TensorDict
 
 from rl4co.envs.scheduling.ffsp.env import FFSPEnv
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
-from rl4co.models.zoo.matnet.decoder import (
-    MatNetDecoder,
-    MatNetFFSPDecoder,
-    MultiStageFFSPDecoder,
-)
+from rl4co.models.zoo.matnet.decoder import MatNetDecoder, MatNetFFSPDecoder, MultiStageFFSPDecoder
 from rl4co.models.zoo.matnet.encoder import MatNetEncoder
 from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
@@ -69,7 +64,7 @@ class MatNetPolicy(AutoregressivePolicy):
                 use_graph_context=use_graph_context,
             )
 
-        super(MatNetPolicy, self).__init__(
+        super().__init__(
             env_name=env_name,
             encoder=MatNetEncoder(
                 embed_dim=embed_dim,
@@ -110,7 +105,7 @@ class MultiStageFFSPPolicy(nn.Module):
         super().__init__()
         self.stage_cnt = stage_cnt
 
-        self.encoders: List[MatNetEncoder] = nn.ModuleList(
+        self.encoders: list[MatNetEncoder] = nn.ModuleList(
             [
                 MatNetEncoder(
                     embed_dim=embed_dim,
@@ -124,7 +119,7 @@ class MultiStageFFSPPolicy(nn.Module):
                 for _ in range(self.stage_cnt)
             ]
         )
-        self.decoders: List[MultiStageFFSPDecoder] = nn.ModuleList(
+        self.decoders: list[MultiStageFFSPDecoder] = nn.ModuleList(
             [
                 MultiStageFFSPDecoder(embed_dim, num_heads, use_graph_context)
                 for _ in range(self.stage_cnt)
@@ -158,7 +153,7 @@ class MultiStageFFSPPolicy(nn.Module):
         env: FFSPEnv,
         phase="train",
         num_starts=1,
-        return_actions: bool = False,
+        return_actions: bool = True,
         **decoder_kwargs,
     ):
         assert not env.flatten_stages, "Multistage model only supports unflattened env"

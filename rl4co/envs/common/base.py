@@ -1,7 +1,7 @@
 import abc
 
+from collections.abc import Iterable
 from os.path import join as pjoin
-from typing import Iterable, Optional
 
 import torch
 
@@ -72,7 +72,7 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
         if kwargs:
             log.error(
                 f"Unused keyword arguments: {', '.join(kwargs.keys())}. "
-                "Please check the base class documentation at https://rl4co.readthedocs.io/en/latest/_content/api/envs/base.html. "
+                "Please check the base class documentation at https://rl4co.ai4co.org/en/latest/_content/api/envs/base.html. "
                 "In case you would like to pass data generation arguments, please pass a `generator` method instead "
                 "or for example: `generator_kwargs=dict(num_loc=50)` to the constructor."
             )
@@ -95,9 +95,9 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
                     if names is None:
                         names = [f"{i}" for i in range(len(f))]
                     else:
-                        assert len(names) == len(
-                            f
-                        ), "Number of dataloader names must match number of files"
+                        assert len(names) == len(f), (
+                            "Number of dataloader names must match number of files"
+                        )
                 else:
                     if names is not None:
                         log.warning(
@@ -132,7 +132,7 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
             # Since we simplify the syntax
             return self._torchrl_step(td)
 
-    def reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         """Reset function to call at the beginning of each episode"""
         if batch_size is None:
             batch_size = self.batch_size if td is None else td.batch_size
@@ -154,9 +154,7 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
         self._assert_tensordict_shape(td)
         next_preset = td.get("next", None)
 
-        next_tensordict = self._step(
-            td.clone()
-        )  # NOTE: we clone to avoid recursion error
+        next_tensordict = self._step(td.clone())  # NOTE: we clone to avoid recursion error
         next_tensordict = self._step_proc_data(next_tensordict)
         if next_preset is not None:
             next_tensordict.update(next_preset.exclude(*next_tensordict.keys(True, True)))
@@ -171,7 +169,7 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         """Reset function to call at the beginning of each episode"""
         raise NotImplementedError
 
@@ -179,11 +177,15 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
         """Make the specifications of the environment (observation, action, reward, done)"""
         raise NotImplementedError
 
-    def get_reward(self, td: TensorDict, actions: torch.Tensor) -> torch.Tensor:
+    def get_reward(
+        self, td: TensorDict, actions: torch.Tensor, check_solution: bool | None = None
+    ) -> torch.Tensor:
         """Function to compute the reward. Can be called by the agent to compute the reward of the current state
         This is faster than calling step() and getting the reward from the returned TensorDict at each time for CO tasks
         """
-        if self.check_solution:
+        # Fallback to env setting if not assigned
+        check_solution = self.check_solution if check_solution is None else check_solution
+        if check_solution:
             self.check_solution_validity(td, actions)
         return self._get_reward(td, actions)
 
@@ -223,15 +225,11 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
         """
         raise NotImplementedError
 
-    def local_search(
-        self, td: TensorDict, actions: torch.Tensor, **kwargs
-    ) -> torch.Tensor:
+    def local_search(self, td: TensorDict, actions: torch.Tensor, **kwargs) -> torch.Tensor:
         """Function to improve the solution. Can be called by the agent to improve the current state
         This is called with the full solution (i.e. all actions) at the end of the episode
         """
-        raise NotImplementedError(
-            f"Local is not implemented yet for {self.name} environment"
-        )
+        raise NotImplementedError(f"Local is not implemented yet for {self.name} environment")
 
     def dataset(self, batch_size=[], phase="train", filename=None):
         """Return a dataset of observations
@@ -278,14 +276,16 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
 
     def render(self, *args, **kwargs):
         """Render the environment"""
-        raise NotImplementedError
+        raise NotImplementedError(
+            f"Render is not implemented for {self.name} environment. Please implement the `render` method in the subclass."
+        )
 
     @staticmethod
     def load_data(fpath, batch_size=[]):
         """Dataset loading from file"""
         return load_npz_to_tensordict(fpath)
 
-    def _set_seed(self, seed: Optional[int]):
+    def _set_seed(self, seed: int | None):
         """Set the seed for the environment"""
         rng = torch.manual_seed(seed)
         self.rng = rng
@@ -377,9 +377,7 @@ class ImprovementEnvBase(RL4COEnvBase, metaclass=abc.ABCMeta):
         visited_time = torch.zeros((batch_size, seq_length)).to(rec.device)
         pre = torch.zeros((batch_size), device=rec.device).long()
         for i in range(seq_length):
-            visited_time[torch.arange(batch_size), rec[torch.arange(batch_size), pre]] = (
-                i + 1
-            )
+            visited_time[torch.arange(batch_size), rec[torch.arange(batch_size), pre]] = i + 1
             pre = rec[torch.arange(batch_size), pre]
 
         visited_time = visited_time % seq_length

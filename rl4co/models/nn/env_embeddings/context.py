@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from tensordict import TensorDict
 
-from rl4co.utils.ops import gather_by_index
+from rl4co.utils.ops import batched_scatter_sum, gather_by_index
 
 
 def env_context_embedding(env_name: str, config: dict) -> nn.Module:
@@ -20,6 +20,7 @@ def env_context_embedding(env_name: str, config: dict) -> nn.Module:
         "atsp": TSPContext,
         "cvrp": VRPContext,
         "cvrptw": VRPTWContext,
+        "cvrpmvc": VRPContext,
         "ffsp": FFSPContext,
         "svrp": SVRPContext,
         "sdvrp": VRPContext,
@@ -29,11 +30,14 @@ def env_context_embedding(env_name: str, config: dict) -> nn.Module:
         "dpp": DPPContext,
         "mdpp": DPPContext,
         "pdp": PDPContext,
+        "mdcpdp": MDCPDPContext,
         "mtsp": MTSPContext,
         "smtwtp": SMTWTPContext,
-        "mdcpdp": MDCPDPContext,
         "mtvrp": MTVRPContext,
         "lop": LOPContext,
+        "shpp": TSPContext,
+        "flp": FLPContext,
+        "mcp": MCPContext,
     }
 
     if env_name not in embedding_registry:
@@ -50,7 +54,7 @@ class EnvContext(nn.Module):
     Consists of a linear layer that projects the node features to the embedding space."""
 
     def __init__(self, embed_dim, step_context_dim=None, linear_bias=False):
-        super(EnvContext, self).__init__()
+        super().__init__()
         self.embed_dim = embed_dim
         step_context_dim = step_context_dim if step_context_dim is not None else embed_dim
         self.project_context = nn.Linear(step_context_dim, embed_dim, bias=linear_bias)
@@ -107,17 +111,13 @@ class TSPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(TSPContext, self).__init__(embed_dim, 2 * embed_dim)
-        self.W_placeholder = nn.Parameter(
-            torch.Tensor(2 * self.embed_dim).uniform_(-1, 1)
-        )
+        super().__init__(embed_dim, 2 * embed_dim)
+        self.W_placeholder = nn.Parameter(torch.Tensor(2 * self.embed_dim).uniform_(-1, 1))
 
     def forward(self, embeddings, td):
         batch_size = embeddings.size(0)
         # By default, node_dim = -1 (we only have one node embedding per node)
-        node_dim = (
-            (-1,) if td["first_node"].dim() == 1 else (td["first_node"].size(-1), -1)
-        )
+        node_dim = (-1,) if td["first_node"].dim() == 1 else (td["first_node"].size(-1), -1)
         if td["i"][(0,) * td["i"].dim()].item() < 1:  # get first item fast
             if len(td.batch_size) < 2:
                 context_embedding = self.W_placeholder[None, :].expand(
@@ -130,9 +130,7 @@ class TSPContext(EnvContext):
         else:
             context_embedding = gather_by_index(
                 embeddings,
-                torch.stack([td["first_node"], td["current_node"]], -1).view(
-                    batch_size, -1
-                ),
+                torch.stack([td["first_node"], td["current_node"]], -1).view(batch_size, -1),
             ).view(batch_size, *node_dim)
         return self.project_context(context_embedding)
 
@@ -170,9 +168,7 @@ class VRPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(VRPContext, self).__init__(
-            embed_dim=embed_dim, step_context_dim=embed_dim + 1
-        )
+        super().__init__(embed_dim=embed_dim, step_context_dim=embed_dim + 1)
 
     def _state_embedding(self, embeddings, td):
         state_embedding = td["vehicle_capacity"] - td["used_capacity"]
@@ -188,9 +184,7 @@ class VRPTWContext(VRPContext):
     """
 
     def __init__(self, embed_dim):
-        super(VRPContext, self).__init__(
-            embed_dim=embed_dim, step_context_dim=embed_dim + 2
-        )
+        super(VRPContext, self).__init__(embed_dim=embed_dim, step_context_dim=embed_dim + 2)
 
     def _state_embedding(self, embeddings, td):
         capacity = super()._state_embedding(embeddings, td)
@@ -206,7 +200,7 @@ class SVRPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(SVRPContext, self).__init__(embed_dim=embed_dim, step_context_dim=embed_dim)
+        super().__init__(embed_dim=embed_dim, step_context_dim=embed_dim)
 
     def forward(self, embeddings, td):
         cur_node_embedding = self._cur_node_embedding(embeddings, td).squeeze()
@@ -221,12 +215,12 @@ class PCTSPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(PCTSPContext, self).__init__(embed_dim, embed_dim + 1)
+        super().__init__(embed_dim, embed_dim + 1)
 
     def _state_embedding(self, embeddings, td):
-        state_embedding = torch.clamp(
-            td["prize_required"] - td["cur_total_prize"], min=0
-        )[..., None]
+        state_embedding = torch.clamp(td["prize_required"] - td["cur_total_prize"], min=0)[
+            ..., None
+        ]
         return state_embedding
 
 
@@ -238,7 +232,7 @@ class OPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(OPContext, self).__init__(embed_dim, embed_dim + 1)
+        super().__init__(embed_dim, embed_dim + 1)
 
     def _state_embedding(self, embeddings, td):
         state_embedding = td["max_length"][..., 0] - td["tour_length"]
@@ -252,7 +246,7 @@ class DPPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(DPPContext, self).__init__(embed_dim)
+        super().__init__(embed_dim)
 
     def forward(self, embeddings, td):
         """Context cannot be defined by a single node embedding for DPP, hence 0.
@@ -268,7 +262,7 @@ class PDPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(PDPContext, self).__init__(embed_dim, embed_dim)
+        super().__init__(embed_dim, embed_dim)
 
     def forward(self, embeddings, td):
         cur_node_embedding = self._cur_node_embedding(embeddings, td).squeeze()
@@ -286,10 +280,8 @@ class MTSPContext(EnvContext):
     """
 
     def __init__(self, embed_dim, linear_bias=False):
-        super(MTSPContext, self).__init__(embed_dim, 2 * embed_dim)
-        proj_in_dim = (
-            4  # remaining_agents, current_length, max_subtour_length, distance_from_depot
-        )
+        super().__init__(embed_dim, 2 * embed_dim)
+        proj_in_dim = 4  # remaining_agents, current_length, max_subtour_length, distance_from_depot
         self.proj_dynamic_feats = nn.Linear(proj_in_dim, embed_dim, bias=linear_bias)
 
     def _cur_node_embedding(self, embeddings, td):
@@ -322,7 +314,7 @@ class SMTWTPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(SMTWTPContext, self).__init__(embed_dim, embed_dim + 1)
+        super().__init__(embed_dim, embed_dim + 1)
 
     def _cur_node_embedding(self, embeddings, td):
         cur_node_embedding = gather_by_index(embeddings, td["current_job"])
@@ -340,11 +332,41 @@ class MDCPDPContext(EnvContext):
     """
 
     def __init__(self, embed_dim):
-        super(MDCPDPContext, self).__init__(embed_dim, embed_dim)
+        super().__init__(embed_dim, embed_dim * 2 + 5)
+
+    def _state_embedding(self, embeddings, td):
+        # get number of visited cities over total
+        num_agents = td["capacity"].shape[-1]
+        num_cities = td["locs"].shape[-2] - num_agents
+        unvisited_number = td["available"][..., num_agents:].sum(-1)
+        agent_capacity = td["capacity"].gather(-1, td["current_depot"])
+        current_to_deliver = td["to_deliver"][..., num_agents + num_cities // 2 :]
+
+        context_feats = torch.cat(
+            [
+                agent_capacity - td["current_carry"],  # current available capacity
+                td["current_length"].gather(-1, td["current_depot"]),
+                unvisited_number[..., None] / num_cities,
+                current_to_deliver.sum(-1)[..., None],  # current to deliver number
+                td["current_length"].max(-1)[0][..., None],  # max length
+            ],
+            -1,
+        )
+        return context_feats
+
+    def _cur_agent_embedding(self, embeddings, td):
+        """Get embedding of current agent"""
+        cur_agent_embedding = gather_by_index(embeddings, td["current_depot"])
+        return cur_agent_embedding
 
     def forward(self, embeddings, td):
-        cur_node_embedding = self._cur_node_embedding(embeddings, td).squeeze()
-        return self.project_context(cur_node_embedding)
+        cur_node_embedding = self._cur_node_embedding(embeddings, td)
+        cur_agent_embedding = self._cur_agent_embedding(embeddings, td)
+        state_embedding = self._state_embedding(embeddings, td)
+        context_embedding = torch.cat(
+            [cur_node_embedding, cur_agent_embedding, state_embedding], -1
+        )
+        return self.project_context(context_embedding)
 
 
 class SchedulingContext(nn.Module):
@@ -372,17 +394,11 @@ class MTVRPContext(VRPContext):
     """
 
     def __init__(self, embed_dim):
-        super(VRPContext, self).__init__(
-            embed_dim=embed_dim, step_context_dim=embed_dim + 5
-        )
+        super(VRPContext, self).__init__(embed_dim=embed_dim, step_context_dim=embed_dim + 5)
 
     def _state_embedding(self, embeddings, td):
-        remaining_linehaul_capacity = (
-            td["vehicle_capacity"] - td["used_capacity_linehaul"]
-        )
-        remaining_backhaul_capacity = (
-            td["vehicle_capacity"] - td["used_capacity_backhaul"]
-        )
+        remaining_linehaul_capacity = td["vehicle_capacity"] - td["used_capacity_linehaul"]
+        remaining_backhaul_capacity = td["vehicle_capacity"] - td["used_capacity_backhaul"]
         current_time = td["current_time"]
         current_route_length = td["current_route_length"]
         open_route = td["open_route"]
@@ -396,3 +412,43 @@ class MTVRPContext(VRPContext):
             ],
             -1,
         )
+
+
+class FLPContext(EnvContext):
+    """Context embedding for the Facility Location Problem (FLP)."""
+
+    def __init__(self, embed_dim: int):
+        super().__init__(embed_dim=embed_dim)
+        self.embed_dim = embed_dim
+        self.project_context = nn.Linear(embed_dim, embed_dim, bias=True)
+
+    def forward(self, embeddings, td):
+        cur_dist = td["distances"].unsqueeze(-2)  # (batch_size, 1, n_points)
+        dist_improve = cur_dist - td["orig_distances"]  # (batch_size, n_points, n_points)
+        dist_improve = torch.clamp(dist_improve, min=0).sum(-1)  # (batch_size, n_points)
+
+        # softmax
+        loc_best_soft = torch.softmax(dist_improve, dim=-1)  # (batch_size, n_points)
+        context_embedding = (embeddings * loc_best_soft[..., None]).sum(-2)
+        return self.project_context(context_embedding)
+
+
+class MCPContext(EnvContext):
+    """Context embedding for the Maximum Coverage Problem (MCP)."""
+
+    def __init__(self, embed_dim: int):
+        super().__init__(embed_dim=embed_dim)
+        self.embed_dim = embed_dim
+        self.project_context = nn.Linear(embed_dim, embed_dim, bias=True)
+
+    def forward(self, embeddings, td):
+        membership_weighted = batched_scatter_sum(
+            td["weights"].unsqueeze(-1), td["membership"].long()
+        )
+        membership_weighted.squeeze_(-1)
+        # membership_weighted: [batch_size, n_sets]
+
+        # softmax; higher weights for better sets
+        membership_weighted = torch.softmax(membership_weighted, dim=-1)  # (batch_size, n_sets)
+        context_embedding = (membership_weighted.unsqueeze(-1) * embeddings).sum(1)
+        return self.project_context(context_embedding)

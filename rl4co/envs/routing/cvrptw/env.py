@@ -1,15 +1,9 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import BoundedTensorSpec, CompositeSpec, UnboundedContinuousTensorSpec
+from torchrl.data import Bounded, Composite, Unbounded
 
-from rl4co.data.utils import (
-    load_npz_to_tensordict,
-    load_solomon_instance,
-    load_solomon_solution,
-)
+from rl4co.data.utils import load_npz_to_tensordict, load_solomon_instance, load_solomon_solution
 from rl4co.envs.routing.cvrp.env import CVRPEnv
 from rl4co.utils.ops import gather_by_index, get_distance
 
@@ -68,20 +62,16 @@ class CVRPTWEnv(CVRPEnv):
         if isinstance(generator, CVRPGenerator):
             super()._make_spec(generator)
         else:
-            current_time = UnboundedContinuousTensorSpec(
-                shape=(1), dtype=torch.float32, device=self.device
-            )
-            current_loc = UnboundedContinuousTensorSpec(
-                shape=(2), dtype=torch.float32, device=self.device
-            )
-            durations = BoundedTensorSpec(
+            current_time = Unbounded(shape=(1), dtype=torch.float32, device=self.device)
+            current_loc = Unbounded(shape=(2), dtype=torch.float32, device=self.device)
+            durations = Bounded(
                 low=generator.min_time,
                 high=generator.max_time,
                 shape=(generator.num_loc, 1),
                 dtype=torch.int64,
                 device=self.device,
             )
-            time_windows = BoundedTensorSpec(
+            time_windows = Bounded(
                 low=generator.min_time,
                 high=generator.max_time,
                 shape=(
@@ -92,7 +82,7 @@ class CVRPTWEnv(CVRPEnv):
                 device=self.device,
             )
             # Extend observation specs
-            self.observation_spec = CompositeSpec(
+            self.observation_spec = Composite(
                 **self.observation_spec,
                 current_time=current_time,
                 current_loc=current_loc,
@@ -133,20 +123,14 @@ class CVRPTWEnv(CVRPEnv):
         td = super()._step(td)
         return td
 
-    def _reset(
-        self, td: Optional[TensorDict] = None, batch_size: Optional[list] = None
-    ) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size: list | None = None) -> TensorDict:
         device = td.device
         td_reset = TensorDict(
             {
                 "locs": torch.cat((td["depot"][..., None, :], td["locs"]), -2),
                 "demand": td["demand"],
-                "current_node": torch.zeros(
-                    *batch_size, 1, dtype=torch.long, device=device
-                ),
-                "current_time": torch.zeros(
-                    *batch_size, 1, dtype=torch.float32, device=device
-                ),
+                "current_node": torch.zeros(*batch_size, 1, dtype=torch.long, device=device),
+                "current_time": torch.zeros(*batch_size, 1, dtype=torch.float32, device=device),
                 "used_capacity": torch.zeros((*batch_size, 1), device=device),
                 "vehicle_capacity": torch.full(
                     (*batch_size, 1), self.generator.vehicle_capacity, device=device
@@ -174,9 +158,7 @@ class CVRPTWEnv(CVRPEnv):
         CVRPEnv.check_solution_validity(td, actions)
         batch_size = td["locs"].shape[0]
         # distances to depot
-        distances = get_distance(
-            td["locs"][..., 0, :], td["locs"].transpose(0, 1)
-        ).transpose(0, 1)
+        distances = get_distance(td["locs"][..., 0, :], td["locs"].transpose(0, 1)).transpose(0, 1)
         # basic checks on time windows
         assert torch.all(distances >= 0.0), "Distances must be non-negative."
         assert torch.all(td["time_windows"] >= 0.0), "Time windows must be non-negative."
@@ -184,12 +166,10 @@ class CVRPTWEnv(CVRPEnv):
             td["time_windows"][..., :, 0] + distances + td["durations"]
             <= td["time_windows"][..., 0, 1][0]  # max_time is the same for all batches
         ), "vehicle cannot perform service and get back to depot in time."
-        assert torch.all(
-            td["durations"] >= 0.0
-        ), "Service durations must be non-negative."
-        assert torch.all(
-            td["time_windows"][..., 0] < td["time_windows"][..., 1]
-        ), "there are unfeasible time windows"
+        assert torch.all(td["durations"] >= 0.0), "Service durations must be non-negative."
+        assert torch.all(td["time_windows"][..., 0] < td["time_windows"][..., 1]), (
+            "there are unfeasible time windows"
+        )
         # check vehicles can meet deadlines
         curr_time = torch.zeros(batch_size, 1, dtype=torch.float32, device=td.device)
         curr_node = torch.zeros_like(curr_time, dtype=torch.int64, device=td.device)
@@ -201,15 +181,11 @@ class CVRPTWEnv(CVRPEnv):
             ).reshape([batch_size, 1])
             curr_time = torch.max(
                 (curr_time + dist).int(),
-                gather_by_index(td["time_windows"], next_node)[..., 0].reshape(
-                    [batch_size, 1]
-                ),
+                gather_by_index(td["time_windows"], next_node)[..., 0].reshape([batch_size, 1]),
             )
             assert torch.all(
                 curr_time
-                <= gather_by_index(td["time_windows"], next_node)[..., 1].reshape(
-                    [batch_size, 1]
-                )
+                <= gather_by_index(td["time_windows"], next_node)[..., 1].reshape([batch_size, 1])
             ), "vehicle cannot start service before deadline"
             curr_time = curr_time + gather_by_index(td["durations"], next_node).reshape(
                 [batch_size, 1]
@@ -219,7 +195,7 @@ class CVRPTWEnv(CVRPEnv):
 
     @staticmethod
     def render(td: TensorDict, actions: torch.Tensor = None, ax=None):
-        render(td, actions, ax)
+        return render(td, actions, ax)
 
     @staticmethod
     def load_data(
@@ -254,9 +230,7 @@ class CVRPTWEnv(CVRPEnv):
         self.max_time = instance["time_window"][:, 1].max()
         # assert the time window of the depot starts at 0 and ends at max_time
         assert self.min_time == 0, "Time window of depot must start at 0."
-        assert (
-            self.max_time == instance["time_window"][0, 1]
-        ), "Depot must have latest end time."
+        assert self.max_time == instance["time_window"][0, 1], "Depot must have latest end time."
         # convert to format used in CVRPTWEnv
         td = TensorDict(
             {

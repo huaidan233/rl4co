@@ -7,9 +7,7 @@ from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 
-def render(
-    td: TensorDict, actions=None, ax=None, scale_xy: bool = True, vehicle_capacity=None
-):
+def render(td: TensorDict, actions=None, ax=None, scale_xy: bool = False, vehicle_capacity=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -139,7 +137,4 @@ def render(
         ax.set_xlim(-0.05, 1.05)
         ax.set_ylim(-0.05, 1.05)
 
-    # Remove the ticks
-    ax.set_xticks([])
-    ax.set_yticks([])
-    plt.show()
+    return ax

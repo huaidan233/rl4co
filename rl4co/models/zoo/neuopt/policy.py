@@ -1,7 +1,5 @@
 import math
 
-from typing import Union
-
 import torch
 import torch.nn as nn
 
@@ -24,7 +22,7 @@ class CustomizeTSPInitEmbedding(nn.Module):
     """
 
     def __init__(self, embed_dim, linear_bias=True):
-        super(CustomizeTSPInitEmbedding, self).__init__()
+        super().__init__()
         node_dim = 2  # x, y
         self.init_embed = nn.Sequential(
             nn.Linear(node_dim, embed_dim // 2, linear_bias),
@@ -77,7 +75,7 @@ class NeuOptPolicy(ImprovementPolicy):
         val_decode_type: str = "sampling",
         test_decode_type: str = "sampling",
     ):
-        super(NeuOptPolicy, self).__init__()
+        super().__init__()
 
         self.env_name = env_name
         self.embed_dim = embed_dim
@@ -120,9 +118,9 @@ class NeuOptPolicy(ImprovementPolicy):
     def forward(
         self,
         td: TensorDict,
-        env: Union[str, RL4COEnvBase] = None,
+        env: str | RL4COEnvBase = None,
         phase: str = "train",
-        return_actions: bool = False,
+        return_actions: bool = True,
         return_embeds: bool = False,
         only_return_embed: bool = False,
         actions=None,
@@ -185,9 +183,7 @@ class NeuOptPolicy(ImprovementPolicy):
         action_index = torch.zeros(bs, env.k_max, dtype=torch.long).to(rec.device)
         k_action_left = torch.zeros(bs, env.k_max + 1, dtype=torch.long).to(rec.device)
         k_action_right = torch.zeros(bs, env.k_max, dtype=torch.long).to(rec.device)
-        next_of_last_action = (
-            torch.zeros_like(rec[:, :1], dtype=torch.long).to(rec.device) - 1
-        )
+        next_of_last_action = torch.zeros_like(rec[:, :1], dtype=torch.long).to(rec.device) - 1
         mask = torch.zeros_like(rec, dtype=torch.bool).to(rec.device)
         stopped = torch.ones(bs, dtype=torch.bool).to(rec.device)
         zeros = torch.zeros((bs, 1), device=td.device)
@@ -244,9 +240,7 @@ class NeuOptPolicy(ImprovementPolicy):
                 input_q1.clone(),
                 nfe.gather(
                     1,
-                    (next_of_last_action % gs)
-                    .view(bs, 1, 1)
-                    .expand(bs, 1, self.embed_dim),
+                    (next_of_last_action % gs).view(bs, 1, 1).expand(bs, 1, self.embed_dim),
                 ).squeeze(1),
             )
 
@@ -263,16 +257,14 @@ class NeuOptPolicy(ImprovementPolicy):
 
             # Calc next basic masks
             if i == 0:
-                visited_time_tag = (
-                    visited_time - visited_time.gather(1, action_sampled)
-                ) % gs
+                visited_time_tag = (visited_time - visited_time.gather(1, action_sampled)) % gs
             mask &= False
             mask[(visited_time_tag <= visited_time_tag.gather(1, action_sampled))] = True
             if i == 0:
                 mask[visited_time_tag > (gs - 2)] = True
-            mask[
-                stopped, action_sampled[stopped].squeeze()
-            ] = False  # allow next k-opt starts immediately
+            mask[stopped, action_sampled[stopped].squeeze()] = (
+                False  # allow next k-opt starts immediately
+            )
             # if True:#i == env.k_max - 2: # allow special case: close k-opt at the first selected node
             index_allow_first_node = (~stopped) & (
                 next_of_new_action.squeeze() == action_index[:, 0]

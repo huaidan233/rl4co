@@ -1,5 +1,4 @@
 from functools import lru_cache
-from typing import Optional, Union
 
 import torch
 
@@ -8,17 +7,13 @@ from tensordict import TensorDict
 from torch import Tensor
 
 
-def _batchify_single(
-    x: Union[Tensor, TensorDict], repeats: int
-) -> Union[Tensor, TensorDict]:
+def _batchify_single(x: Tensor | TensorDict, repeats: int) -> Tensor | TensorDict:
     """Same as repeat on dim=0 for Tensordicts as well"""
     s = x.shape
     return x.expand(repeats, *s).contiguous().view(s[0] * repeats, *s[1:])
 
 
-def batchify(
-    x: Union[Tensor, TensorDict], shape: Union[tuple, int]
-) -> Union[Tensor, TensorDict]:
+def batchify(x: Tensor | TensorDict, shape: tuple | int) -> Tensor | TensorDict:
     """Same as `einops.repeat(x, 'b ... -> (b r) ...', r=repeats)` but ~1.5x faster and supports TensorDicts.
     Repeats batchify operation `n` times as specified by each shape element.
     If shape is a tuple, iterates over each element and repeats that many times to match the tuple shape.
@@ -34,17 +29,13 @@ def batchify(
     return x
 
 
-def _unbatchify_single(
-    x: Union[Tensor, TensorDict], repeats: int
-) -> Union[Tensor, TensorDict]:
+def _unbatchify_single(x: Tensor | TensorDict, repeats: int) -> Tensor | TensorDict:
     """Undoes batchify operation for Tensordicts as well"""
     s = x.shape
     return x.view(repeats, s[0] // repeats, *s[1:]).permute(1, 0, *range(2, len(s) + 1))
 
 
-def unbatchify(
-    x: Union[Tensor, TensorDict], shape: Union[tuple, int]
-) -> Union[Tensor, TensorDict]:
+def unbatchify(x: Tensor | TensorDict, shape: tuple | int) -> Tensor | TensorDict:
     """Same as `einops.rearrange(x, '(r b) ... -> b r ...', r=repeats)` but ~2x faster and supports TensorDicts
     Repeats unbatchify operation `n` times as specified by each shape element
     If shape is a tuple, iterates over each element and unbatchifies that many times to match the tuple shape.
@@ -55,9 +46,7 @@ def unbatchify(
     >>> out.shape: [a, b, c, ...]
     """
     shape = [shape] if isinstance(shape, int) else shape
-    for s in reversed(
-        shape
-    ):  # we need to reverse the shape to unbatchify in the right order
+    for s in reversed(shape):  # we need to reverse the shape to unbatchify in the right order
         x = _unbatchify_single(x, s) if s > 0 else x
     return x
 
@@ -149,17 +138,14 @@ def select_start_nodes(td, env, num_starts):
     num_loc = env.generator.num_loc if hasattr(env.generator, "num_loc") else 0xFFFFFFFF
     if env.name in ["tsp", "atsp", "flp", "mcp"]:
         selected = (
-            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0])
-            % num_loc
+            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0]) % num_loc
         )
     elif env.name in ["jssp", "fjsp"]:
         raise NotImplementedError("Multistart not yet supported for FJSP/JSSP")
     else:
         # Environments with depot: we do not select the depot as a start node
         selected = (
-            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0])
-            % num_loc
-            + 1
+            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0]) % num_loc + 1
         )
         if env.name == "op":
             if (td["action_mask"][..., 1:].float().sum(-1) < num_starts).any():
@@ -180,7 +166,7 @@ def get_best_actions(actions, max_idxs):
     return actions.gather(0, max_idxs[..., None, None])
 
 
-def sparsify_graph(cost_matrix: Tensor, k_sparse: Optional[int] = None, self_loop=False):
+def sparsify_graph(cost_matrix: Tensor, k_sparse: int | None = None, self_loop=False):
     """Generate a sparsified graph for the cost_matrix by selecting k edges with the lowest cost for each node.
 
     Args:
@@ -254,9 +240,68 @@ def sample_n_random_actions(td: TensorDict, n: int):
         replace = True
     else:
         replace = False
-    ps = torch.rand((action_mask.shape))
+    ps = torch.rand(action_mask.shape)
     ps[~action_mask] = -torch.inf
     ps = torch.softmax(ps, dim=1)
     selected = torch.multinomial(ps, n, replacement=replace).squeeze(1)
     selected = rearrange(selected, "b n -> (n b)")
     return selected.to(td.device)
+
+
+def cartesian_to_polar(cartesian: torch.Tensor, origin: torch.Tensor | None = None):
+    """Convert Cartesian coordinates to polar coordinates.
+
+    Args:
+        cartesian: Tensor of shape [..., 2] containing Cartesian coordinates (x, y)
+        origin: Optional origin point to subtract from coordinates before conversion
+    """
+
+    if origin is not None:
+        cartesian = cartesian - origin
+    x, y = cartesian[..., 0], cartesian[..., 1]
+    rho = torch.norm(cartesian, dim=-1)
+    theta = torch.atan2(y, x)
+    polar = torch.stack((rho, theta), dim=-1)
+    return polar
+
+
+def select_start_nodes_by_distance(td, env, num_starts, exclude_depot=True):
+    """Select start nodes based on their distance from the origin."""
+    polar_locs = td.get("polar_locs", None)
+    if polar_locs is None:
+        radius = torch.norm(td["locs"], dim=-1)
+    else:
+        radius = polar_locs[..., 0]
+    _, node_index = torch.topk(radius, k=num_starts + 1, dim=-1, sorted=True, largest=False)
+    selected_nodes = node_index[:, 1:] if exclude_depot else node_index[:, :-1]
+    return rearrange(selected_nodes, "b n -> (n b)")
+
+
+def batched_scatter_sum(src, idx):
+    """Performs a batched scatter and sum operation on the source tensor using the provided indices.
+
+    Parameters:
+        src (Tensor): A tensor of shape [batch_size, N, h].
+                      Contains the data to be scattered and summed.
+        idx (Tensor): A tensor of shape [batch_size, M, K] with zero-padding.
+                      Each non-zero element in idx represents an index (offset by 1)
+                      into src. A zero value indicates a padded (invalid) index.
+
+    Returns:
+        Tensor: A tensor of shape [batch_size, M, h] where for each batch and each index j,
+                the output is computed as:
+                    Output[batch, j] = sum(src[batch, k - 1] for k in idx[batch, j] if k != 0)
+                The subtraction of 1 is applied because 0 is used as the padding value.
+
+    Details:
+        - A temporary target tensor (tgt) of shape [batch_size, N+1, h] is created,
+          where tgt[:, 1:] is populated with src.
+        - The function reshapes idx to gather the corresponding values and then reshapes
+          the result back to [batch_size, M, K, h] before summing over the scattering dimension.
+    """
+    bs, N, h = src.shape
+    bs, M, K = idx.shape
+    tgt = torch.zeros(bs, N + 1, h, device=src.device)
+    tgt[:, 1:] = src
+    tgt = gather_by_index(tgt, idx.long().reshape(bs, -1), squeeze=False)
+    return tgt.reshape(bs, M, K, h).sum(-2)

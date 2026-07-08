@@ -2,12 +2,7 @@ import torch
 
 from einops import rearrange, reduce
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import RL4COEnvBase as EnvBase
 from rl4co.utils.ops import gather_by_index, sample_n_random_actions
@@ -123,9 +118,7 @@ class FJSPEnv(EnvBase):
         # generate for each batch a sequence specifying the position of all operations in their respective jobs,
         # e.g. [0,1,0,0,1,2,0,1,2,3,0,0] for jops with n_ops=[2,1,3,4,1,1]
         # (bs, max_ops)
-        ops_seq_order = torch.sum(
-            ops_job_bin_map * (ops_job_bin_map.cumsum(2) - 1), dim=1
-        )
+        ops_seq_order = torch.sum(ops_job_bin_map * (ops_job_bin_map.cumsum(2) - 1), dim=1)
 
         # predecessor and successor adjacency matrices
         pred = torch.diag_embed(torch.ones(n_ops_max - 1), offset=-1)[None].expand(
@@ -208,9 +201,7 @@ class FJSPEnv(EnvBase):
         batch_size = td.size(0)
 
         # (bs, jobs, machines)
-        action_mask = torch.full((batch_size, self.num_jobs, self.num_mas), False).to(
-            td.device
-        )
+        action_mask = torch.full((batch_size, self.num_jobs, self.num_mas), False).to(td.device)
 
         # mask jobs that are done already
         action_mask.add_(td["job_done"].unsqueeze(2))
@@ -235,9 +226,7 @@ class FJSPEnv(EnvBase):
             no_op_mask = td["done"]
         else:
             # if no job is currently processed and instance is not finished yet, waiting is not allowed
-            no_op_mask = (
-                td["job_in_process"].any(1, keepdims=True) & (~td["done"])
-            ) | td["done"]
+            no_op_mask = (td["job_in_process"].any(1, keepdims=True) & (~td["done"])) | td["done"]
         # flatten action mask to correspond with logit shape
         action_mask = rearrange(action_mask, "bs j m -> bs (j m)")
         # NOTE: 1 means feasible action, 0 means infeasible action
@@ -375,9 +364,7 @@ class FJSPEnv(EnvBase):
         # we want to transition to the next time step where a machine becomes idle again. This time step must be
         # in the future, therefore we mask all machine idle times lying in the past / present
         available_time = (
-            torch.where(
-                available_time_ma > td["time"][:, None], available_time_ma, torch.inf
-            )
+            torch.where(available_time_ma > td["time"][:, None], available_time_ma, torch.inf)
             .min(1)
             .values
         )
@@ -408,89 +395,87 @@ class FJSPEnv(EnvBase):
         if self.stepwise_reward and actions is None:
             return td["reward"]
         else:
-            assert td[
-                "done"
-            ].all(), "Set stepwise_reward to True if you want reward prior to completion"
-            return (
-                -td["finish_times"].masked_fill(td["pad_mask"], -torch.inf).max(1).values
+            assert td["done"].all(), (
+                "Set stepwise_reward to True if you want reward prior to completion"
             )
+            return -td["finish_times"].masked_fill(td["pad_mask"], -torch.inf).max(1).values
 
     def _make_spec(self, generator: FJSPGenerator):
-        self.observation_spec = CompositeSpec(
-            time=UnboundedDiscreteTensorSpec(
+        self.observation_spec = Composite(
+            time=Unbounded(
                 shape=(1,),
                 dtype=torch.int64,
             ),
-            next_op=UnboundedDiscreteTensorSpec(
+            next_op=Unbounded(
                 shape=(self.num_jobs,),
                 dtype=torch.int64,
             ),
-            proc_times=UnboundedDiscreteTensorSpec(
+            proc_times=Unbounded(
                 shape=(self.num_mas, self.n_ops_max),
                 dtype=torch.float32,
             ),
-            pad_mask=UnboundedDiscreteTensorSpec(
+            pad_mask=Unbounded(
                 shape=(self.num_mas, self.n_ops_max),
                 dtype=torch.bool,
             ),
-            start_op_per_job=UnboundedDiscreteTensorSpec(
+            start_op_per_job=Unbounded(
                 shape=(self.num_jobs,),
                 dtype=torch.bool,
             ),
-            end_op_per_job=UnboundedDiscreteTensorSpec(
+            end_op_per_job=Unbounded(
                 shape=(self.num_jobs,),
                 dtype=torch.bool,
             ),
-            start_times=UnboundedDiscreteTensorSpec(
+            start_times=Unbounded(
                 shape=(self.n_ops_max,),
                 dtype=torch.int64,
             ),
-            finish_times=UnboundedDiscreteTensorSpec(
+            finish_times=Unbounded(
                 shape=(self.n_ops_max,),
                 dtype=torch.int64,
             ),
-            job_ops_adj=UnboundedDiscreteTensorSpec(
+            job_ops_adj=Unbounded(
                 shape=(self.num_jobs, self.n_ops_max),
                 dtype=torch.int64,
             ),
-            ops_job_map=UnboundedDiscreteTensorSpec(
+            ops_job_map=Unbounded(
                 shape=(self.n_ops_max),
                 dtype=torch.int64,
             ),
-            ops_sequence_order=UnboundedDiscreteTensorSpec(
+            ops_sequence_order=Unbounded(
                 shape=(self.n_ops_max),
                 dtype=torch.int64,
             ),
-            ma_assignment=UnboundedDiscreteTensorSpec(
+            ma_assignment=Unbounded(
                 shape=(self.num_mas, self.n_ops_max),
                 dtype=torch.int64,
             ),
-            busy_until=UnboundedDiscreteTensorSpec(
+            busy_until=Unbounded(
                 shape=(self.num_mas,),
                 dtype=torch.int64,
             ),
-            num_eligible=UnboundedDiscreteTensorSpec(
+            num_eligible=Unbounded(
                 shape=(self.n_ops_max,),
                 dtype=torch.int64,
             ),
-            job_in_process=UnboundedDiscreteTensorSpec(
+            job_in_process=Unbounded(
                 shape=(self.num_jobs,),
                 dtype=torch.bool,
             ),
-            job_done=UnboundedDiscreteTensorSpec(
+            job_done=Unbounded(
                 shape=(self.num_jobs,),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=-1,
             high=self.n_ops_max,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     @staticmethod
     def render(td, idx):

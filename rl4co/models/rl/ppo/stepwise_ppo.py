@@ -1,6 +1,6 @@
 import copy
 
-from typing import Any, Union
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -55,7 +55,7 @@ class StepwisePPO(RL4COLitModule):
         metrics: dict = {
             "train": ["loss", "surrogate_loss", "value_loss", "entropy"],
         },
-        reward_scale: Union[str, int] = None,
+        reward_scale: str | int = None,
         **kwargs,
     ):
         super().__init__(env, policy, metrics=metrics, batch_size=batch_size, **kwargs)
@@ -138,9 +138,7 @@ class StepwisePPO(RL4COLitModule):
         outs = {k: torch.stack([dic[k] for dic in outs], dim=0) for k in outs[0]}
         return outs
 
-    def shared_step(
-        self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
-    ):
+    def shared_step(self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None):
         next_td = self.env.reset(batch)
         device = next_td.device
         if phase == "train":
@@ -163,9 +161,7 @@ class StepwisePPO(RL4COLitModule):
                 self.rb.empty()
 
         else:
-            out = self.policy.generate(
-                next_td, self.env, phase=phase, select_best=phase != "train"
-            )
+            out = self.policy.generate(next_td, self.env, phase=phase, select_best=phase != "train")
 
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}

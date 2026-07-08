@@ -1,14 +1,7 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.envs.common.utils import batch_to_scalar
@@ -89,7 +82,7 @@ class ATSPEnv(RL4COEnvBase):
         )
         return td
 
-    def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         # Initialize distance matrix
         cost_matrix = td["cost_matrix"]
         device = td.device
@@ -113,39 +106,39 @@ class ATSPEnv(RL4COEnvBase):
         )
 
     def _make_spec(self, generator: ATSPGenerator):
-        self.observation_spec = CompositeSpec(
-            cost_matrix=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            cost_matrix=Bounded(
                 low=generator.min_dist,
                 high=generator.max_dist,
                 shape=(generator.num_loc, generator.num_loc),
                 dtype=torch.float32,
             ),
-            first_node=UnboundedDiscreteTensorSpec(
+            first_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            i=UnboundedDiscreteTensorSpec(
+            i=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     def _get_reward(self, td: TensorDict, actions: torch.Tensor) -> torch.Tensor:
         distance_matrix = td["cost_matrix"]
@@ -153,18 +146,16 @@ class ATSPEnv(RL4COEnvBase):
         # Get indexes of tour edges
         nodes_src = actions
         nodes_tgt = torch.roll(actions, -1, dims=1)
-        batch_idx = torch.arange(
-            distance_matrix.shape[0], device=distance_matrix.device
-        ).unsqueeze(1)
+        batch_idx = torch.arange(distance_matrix.shape[0], device=distance_matrix.device).unsqueeze(
+            1
+        )
         # return negative tour length
         return -distance_matrix[batch_idx, nodes_src, nodes_tgt].sum(-1)
 
     @staticmethod
     def check_solution_validity(td: TensorDict, actions: torch.Tensor):
         assert (
-            torch.arange(actions.size(1), out=actions.data.new())
-            .view(1, -1)
-            .expand_as(actions)
+            torch.arange(actions.size(1), out=actions.data.new()).view(1, -1).expand_as(actions)
             == actions.data.sort(1)[0]
         ).all(), "Invalid tour"
 

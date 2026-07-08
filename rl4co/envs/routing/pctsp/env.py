@@ -1,15 +1,8 @@
-from typing import Optional
-
 import torch
 import torch.nn.functional as F
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.ops import gather_by_index, get_tour_length
@@ -70,12 +63,8 @@ class PCTSPEnv(RL4COEnvBase):
         current_node = td["action"]
 
         # Get current coordinates, prize, and penalty
-        cur_total_prize = td["cur_total_prize"] + gather_by_index(
-            td["real_prize"], current_node
-        )
-        cur_total_penalty = td["cur_total_penalty"] + gather_by_index(
-            td["penalty"], current_node
-        )
+        cur_total_prize = td["cur_total_prize"] + gather_by_index(td["real_prize"], current_node)
+        cur_total_penalty = td["cur_total_penalty"] + gather_by_index(td["penalty"], current_node)
 
         # Update visited
         visited = td["visited"].scatter(-1, current_node[..., None], 1)
@@ -101,16 +90,12 @@ class PCTSPEnv(RL4COEnvBase):
         td.set("action_mask", self.get_action_mask(td))
         return td
 
-    def _reset(
-        self, td: Optional[TensorDict] = None, batch_size: Optional[list] = None
-    ) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size: list | None = None) -> TensorDict:
         device = td.device
 
         locs = torch.cat([td["depot"][..., None, :], td["locs"]], dim=-2)
         expected_prize = td["deterministic_prize"]
-        real_prize = (
-            td["stochastic_prize"] if self.stochastic else td["deterministic_prize"]
-        )
+        real_prize = td["stochastic_prize"] if self.stochastic else td["deterministic_prize"]
         penalty = td["penalty"]
 
         # Concatenate depots
@@ -129,9 +114,7 @@ class PCTSPEnv(RL4COEnvBase):
             (*batch_size, self.generator.num_loc + 1), dtype=torch.bool, device=device
         )
         i = torch.zeros((*batch_size,), dtype=torch.int64, device=device)
-        prize_required = torch.full(
-            (*batch_size,), self.generator.prize_required, device=device
-        )
+        prize_required = torch.full((*batch_size,), self.generator.prize_required, device=device)
 
         td_reset = TensorDict(
             {
@@ -191,8 +174,7 @@ class PCTSPEnv(RL4COEnvBase):
 
         # Make sure each node visited once at most (except for depot)
         assert (
-            (sorted_actions[..., 1:] == 0)
-            | (sorted_actions[..., 1:] > sorted_actions[..., :-1])
+            (sorted_actions[..., 1:] == 0) | (sorted_actions[..., 1:] > sorted_actions[..., :-1])
         ).all(), "Duplicates"
 
         prize = td["real_prize"][..., 1:]  # Remove depot
@@ -215,69 +197,67 @@ class PCTSPEnv(RL4COEnvBase):
     @stochastic.setter
     def stochastic(self, state: bool):
         if state is True:
-            log.warning(
-                "Stochastic mode should not be used for PCTSP. Use SPCTSP instead."
-            )
+            log.warning("Stochastic mode should not be used for PCTSP. Use SPCTSP instead.")
 
     def _make_spec(self, generator):
         """Make the locs and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc, 2),
                 dtype=torch.float32,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            expected_prize=UnboundedContinuousTensorSpec(
+            expected_prize=Unbounded(
                 shape=(generator.num_loc),
                 dtype=torch.float32,
             ),
-            real_prize=UnboundedContinuousTensorSpec(
+            real_prize=Unbounded(
                 shape=(generator.num_loc + 1),
                 dtype=torch.float32,
             ),
-            penalty=UnboundedContinuousTensorSpec(
+            penalty=Unbounded(
                 shape=(generator.num_loc + 1),
                 dtype=torch.float32,
             ),
-            cur_total_prize=UnboundedContinuousTensorSpec(
+            cur_total_prize=Unbounded(
                 shape=(1),
                 dtype=torch.float32,
             ),
-            cur_total_penalty=UnboundedContinuousTensorSpec(
+            cur_total_penalty=Unbounded(
                 shape=(1),
                 dtype=torch.float32,
             ),
-            visited=UnboundedDiscreteTensorSpec(
+            visited=Unbounded(
                 shape=(generator.num_loc + 1),
                 dtype=torch.bool,
             ),
-            prize_required=UnboundedContinuousTensorSpec(
+            prize_required=Unbounded(
                 shape=(1),
                 dtype=torch.float32,
             ),
-            i=UnboundedDiscreteTensorSpec(
+            i=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     @staticmethod
     def render(td: TensorDict, actions: torch.Tensor = None, ax=None):

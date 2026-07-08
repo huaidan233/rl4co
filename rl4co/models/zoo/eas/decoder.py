@@ -1,7 +1,5 @@
 import math
 
-from typing import Union
-
 import torch
 
 from tensordict import TensorDict
@@ -27,8 +25,7 @@ def forward_pointer_attn_eas_lay(self, query, key, value, logit_key, mask):
     # Batch matrix multiplication to compute logits (batch_size, num_steps, graph_size)
     # bmm is slightly faster than einsum and matmul
     logits = (
-        torch.bmm(glimpse, logit_key.squeeze(1).transpose(-2, -1))
-        / math.sqrt(glimpse.size(-1))
+        torch.bmm(glimpse, logit_key.squeeze(1).transpose(-2, -1)) / math.sqrt(glimpse.size(-1))
     ).squeeze(1)
 
     return logits
@@ -40,7 +37,7 @@ def forward_eas(
     cached_embeds,
     best_solutions,
     iter_count: int = 0,
-    env: Union[str, RL4COEnvBase] = None,
+    env: str | RL4COEnvBase = None,
     decode_type: str = "multistart_sampling",
     num_starts: int = None,
     mask_logits: bool = True,
@@ -101,9 +98,7 @@ def forward_eas(
             logits,
             mask,
             temperature=self.temperature if self.temperature is not None else temperature,
-            tanh_clipping=self.tanh_clipping
-            if self.tanh_clipping is not None
-            else tanh_clipping,
+            tanh_clipping=(self.tanh_clipping if self.tanh_clipping is not None else tanh_clipping),
             mask_logits=self.mask_logits if self.mask_logits is not None else mask_logits,
         )
 

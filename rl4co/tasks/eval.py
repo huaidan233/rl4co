@@ -41,9 +41,7 @@ class EvalBase:
             rewards_list = []
             actions_list = []
 
-            for batch in tqdm(
-                dataloader, disable=not self.progress, desc=f"Running {self.name}"
-            ):
+            for batch in tqdm(dataloader, disable=not self.progress, desc=f"Running {self.name}"):
                 td = batch.to(next(policy.parameters()).device)
                 td = self.env.reset(td)
                 actions, rewards = self._inner(policy, td, **kwargs)
@@ -51,7 +49,7 @@ class EvalBase:
                 actions_list.append(actions)
 
             rewards = torch.cat(rewards_list)
-            
+
             # Padding: pad actions to the same length with zeros
             max_length = max(action.size(-1) for action in actions_list)
             actions = torch.cat(
@@ -61,7 +59,7 @@ class EvalBase:
                 ],
                 0,
             )
-            
+
         inference_time = time.time() - start
 
         tqdm.write(f"Mean reward for {self.name}: {rewards.mean():.4f}")
@@ -99,7 +97,6 @@ class GreedyEval(EvalBase):
             td.clone(),
             decode_type="greedy",
             num_starts=0,
-            return_actions=True,
         )
         rewards = self.env.get_reward(td, out["actions"])
         return out["actions"], rewards
@@ -131,7 +128,7 @@ class AugmentationEval(EvalBase):
             num_augment = self.augmentation.num_augment
         td_init = td.clone()
         td = self.augmentation(td)
-        out = policy(td.clone(), decode_type="greedy", num_starts=0, return_actions=True)
+        out = policy(td.clone(), decode_type="greedy", num_starts=0)
 
         # Move into batches and compute rewards
         rewards = self.env.get_reward(batchify(td_init, num_augment), out["actions"])
@@ -188,7 +185,6 @@ class SamplingEval(EvalBase):
             top_p=self.top_p,
             top_k=self.top_k,
             multisample=True,
-            return_actions=True,
             softmax_temp=self.softmax_temp,
             select_best=self.select_best,
             select_start_nodes_fn=lambda td, _, n: sample_n_random_actions(td, n),
@@ -223,7 +219,6 @@ class GreedyMultiStartEval(EvalBase):
             td.clone(),
             decode_type="multistart_greedy",
             num_starts=self.num_starts,
-            return_actions=True,
         )
 
         # Move into batches and compute rewards
@@ -266,9 +261,9 @@ class GreedyMultiStartAugmentEval(EvalBase):
 
         assert num_starts is not None, "Must specify num_starts"
         self.num_starts = num_starts
-        assert not (
-            num_augment != 8 and force_dihedral_8
-        ), "Cannot force dihedral 8 when num_augment != 8"
+        assert not (num_augment != 8 and force_dihedral_8), (
+            "Cannot force dihedral 8 when num_augment != 8"
+        )
         self.augmentation = StateAugmentation(
             num_augment=num_augment,
             augment_fn="dihedral8" if force_dihedral_8 else "symmetric",
@@ -286,7 +281,6 @@ class GreedyMultiStartAugmentEval(EvalBase):
             td.clone(),
             decode_type="multistart_greedy",
             num_starts=self.num_starts,
-            return_actions=True,
         )
 
         # Move into batches and compute rewards
@@ -382,7 +376,7 @@ def evaluate_policy(
         },
     }
 
-    assert method in methods_mapping, "Method {} not found".format(method)
+    assert method in methods_mapping, f"Method {method} not found"
 
     # Set up the evaluation function
     eval_settings = methods_mapping[method]
@@ -393,13 +387,11 @@ def evaluate_policy(
     eval_fn = func(env, **kwargs)
 
     if auto_batch_size:
-        assert (
-            batch_size is None
-        ), "Cannot specify batch_size when auto_batch_size is True"
+        assert batch_size is None, "Cannot specify batch_size when auto_batch_size is True"
         batch_size = get_automatic_batch_size(
             eval_fn, max_batch_size=max_batch_size, start_batch_size=start_batch_size
         )
-        print("Using automatic batch size: {}".format(batch_size))
+        print(f"Using automatic batch size: {batch_size}")
 
     # Set up the dataloader
     dataloader = DataLoader(
@@ -456,9 +448,7 @@ if __name__ == "__main__":
         default="checkpoints/am-tsp50.ckpt",
         help="The path of the checkpoint file",
     )
-    parser.add_argument(
-        "--device", type=str, default="cuda:1", help="Device to run the evaluation"
-    )
+    parser.add_argument("--device", type=str, default="cuda:1", help="Device to run the evaluation")
 
     # Evaluation
     parser.add_argument(
@@ -469,9 +459,7 @@ if __name__ == "__main__":
                         'multistart_greedy', 'augment_dihedral_8', 'augment', 'multistart_greedy_augment_dihedral_8',\
                         'multistart_greedy_augment'",
     )
-    parser.add_argument(
-        "--temperature", type=float, default=1.0, help="Temperature for sampling"
-    )
+    parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for sampling")
     parser.add_argument(
         "--top-p",
         type=float,

@@ -4,7 +4,7 @@ from einops import einsum, reduce
 from tensordict import TensorDict
 from torch._tensor import Tensor
 
-from rl4co.envs import FJSPEnv
+from rl4co.envs.scheduling.fjsp.env import FJSPEnv
 from rl4co.utils.ops import gather_by_index
 
 from .generator import JSSPFileGenerator, JSSPGenerator
@@ -100,9 +100,7 @@ class JSSPEnv(FJSPEnv):
             no_op_mask = td["done"]
         else:
             # if no job is currently processed and instance is not finished yet, waiting is not allowed
-            no_op_mask = (
-                td["job_in_process"].any(1, keepdims=True) & (~td["done"])
-            ) | td["done"]
+            no_op_mask = (td["job_in_process"].any(1, keepdims=True) & (~td["done"])) | td["done"]
         # reduce action mask to correspond with logit shape
         action_mask = reduce(action_mask, "bs j m -> bs j", reduction="all")
         # NOTE: 1 means feasible action, 0 means infeasible action

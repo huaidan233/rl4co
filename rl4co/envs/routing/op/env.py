@@ -1,15 +1,8 @@
-from typing import Optional, Union
-
 import torch
 import torch.nn.functional as F
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.ops import gather_by_index, get_tour_length
@@ -33,7 +26,7 @@ class OPEnv(RL4COEnvBase):
         - current tour length
         - current total prize
         - the remaining length of the path
-    
+
     Constraints:
         - the tour starts and ends at the depot
         - not all customers need to be visited
@@ -109,8 +102,8 @@ class OPEnv(RL4COEnvBase):
 
     def _reset(
         self,
-        td: Optional[TensorDict] = None,
-        batch_size: Optional[list] = None,
+        td: TensorDict | None = None,
+        batch_size: list | None = None,
     ) -> TensorDict:
         device = td.device
 
@@ -121,29 +114,21 @@ class OPEnv(RL4COEnvBase):
         td_reset = TensorDict(
             {
                 "locs": locs_with_depot,
-                "prize": F.pad(
-                    td["prize"], (1, 0), mode="constant", value=0
-                ),  # add 0 for depot
+                "prize": F.pad(td["prize"], (1, 0), mode="constant", value=0),  # add 0 for depot
                 "tour_length": torch.zeros(*batch_size, device=device),
                 # max_length is max length allowed when arriving at node, so subtract distance to return to depot
                 # Additionally, substract epsilon margin for numeric stability
                 "max_length": td["max_length"][..., None]
                 - (td["depot"][..., None, :] - locs_with_depot).norm(p=2, dim=-1)
                 - 1e-6,
-                "current_node": torch.zeros(
-                    *batch_size, 1, dtype=torch.long, device=device
-                ),
+                "current_node": torch.zeros(*batch_size, 1, dtype=torch.long, device=device),
                 "visited": torch.zeros(
                     (*batch_size, locs_with_depot.shape[-2]),
                     dtype=torch.bool,
                     device=device,
                 ),
-                "current_total_prize": torch.zeros(
-                    *batch_size, dtype=torch.float, device=device
-                ),
-                "i": torch.zeros(
-                    (*batch_size,), dtype=torch.int64, device=device
-                ),  # counter
+                "current_total_prize": torch.zeros(*batch_size, dtype=torch.float, device=device),
+                "i": torch.zeros((*batch_size,), dtype=torch.int64, device=device),  # counter
             },
             batch_size=batch_size,
         )
@@ -192,8 +177,7 @@ class OPEnv(RL4COEnvBase):
         sorted_actions = actions.data.sort(1)[0]
         # Make sure each node visited once at most (except for depot)
         assert (
-            (sorted_actions[:, 1:] == 0)
-            | (sorted_actions[:, 1:] > sorted_actions[:, :-1])
+            (sorted_actions[:, 1:] == 0) | (sorted_actions[:, 1:] > sorted_actions[:, :-1])
         ).all(), "Duplicates"
 
         # Gather locations in order of tour and get the length of tours
@@ -203,60 +187,56 @@ class OPEnv(RL4COEnvBase):
         max_length = td["max_length"]
         if add_distance_to_depot:
             max_length = (
-                max_length
-                + (td["locs"][..., 0:1, :] - td["locs"]).norm(p=2, dim=-1)
-                + 1e-6
+                max_length + (td["locs"][..., 0:1, :] - td["locs"]).norm(p=2, dim=-1) + 1e-6
             )
-        assert (
-            length[..., None] <= max_length + 1e-5
-        ).all(), "Max length exceeded by {}".format(
-            (length[..., None] - max_length).max()
+        assert (length[..., None] <= max_length + 1e-5).all(), (
+            f"Max length exceeded by {(length[..., None] - max_length).max()}"
         )
 
     def _make_spec(self, generator: OPGenerator):
         """Make the observation and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc + 1, 2),
                 dtype=torch.float32,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            prize=UnboundedContinuousTensorSpec(
+            prize=Unbounded(
                 shape=(generator.num_loc,),
                 dtype=torch.float32,
             ),
-            tour_length=UnboundedContinuousTensorSpec(
+            tour_length=Unbounded(
                 shape=(generator.num_loc,),
                 dtype=torch.float32,
             ),
-            visited=UnboundedDiscreteTensorSpec(
+            visited=Unbounded(
                 shape=(generator.num_loc + 1,),
                 dtype=torch.bool,
             ),
-            max_length=UnboundedContinuousTensorSpec(
+            max_length=Unbounded(
                 shape=(1,),
                 dtype=torch.float32,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc + 1, 1),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc + 1,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     @staticmethod
-    def render(td: TensorDict, actions: torch.Tensor=None, ax = None):
+    def render(td: TensorDict, actions: torch.Tensor = None, ax=None):
         return render(td, actions, ax)

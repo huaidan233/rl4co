@@ -1,5 +1,4 @@
 from functools import partial
-from typing import Union
 
 import torch
 
@@ -7,11 +6,7 @@ from torch.utils.data import DataLoader
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.models.rl import REINFORCE
-from rl4co.models.rl.reinforce.baselines import (
-    REINFORCEBaseline,
-    RolloutBaseline,
-    WarmupBaseline,
-)
+from rl4co.models.rl.reinforce.baselines import REINFORCEBaseline, RolloutBaseline, WarmupBaseline
 from rl4co.models.zoo.mdam.policy import MDAMPolicy
 
 
@@ -57,7 +52,7 @@ class MDAM(REINFORCE):
         self,
         env: RL4COEnvBase,
         policy: MDAMPolicy = None,
-        baseline: Union[REINFORCEBaseline, str] = "rollout",
+        baseline: REINFORCEBaseline | str = "rollout",
         policy_kwargs={},
         baseline_kwargs={},
         **kwargs,
@@ -101,9 +96,7 @@ class MDAM(REINFORCE):
         )
 
         # REINFORCE baseline
-        bl_val, bl_loss = (
-            self.baseline.eval(td, reward, self.env) if extra is None else (extra, 0)
-        )
+        bl_val, bl_loss = self.baseline.eval(td, reward, self.env) if extra is None else (extra, 0)
 
         # Main loss function
         # reward: [batch, num_paths]. Note that the baseline value is the max reward

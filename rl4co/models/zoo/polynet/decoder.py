@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Tuple, Union
 
 import torch.nn as nn
 
@@ -18,7 +17,7 @@ log = get_pylogger(__name__)
 @dataclass
 class PrecomputedCache:
     node_embeddings: Tensor
-    graph_context: Union[Tensor, float]
+    graph_context: Tensor | float
     glimpse_key: Tensor
     glimpse_val: Tensor
     logit_key: Tensor
@@ -56,7 +55,7 @@ class PolyNetDecoder(AttentionModelDecoder):
         embed_dim: int = 128,
         poly_layer_dim: int = 256,
         num_heads: int = 8,
-        env_name: Union[str, RL4COEnvBase] = "tsp",
+        env_name: str | RL4COEnvBase = "tsp",
         context_embedding: nn.Module = None,
         dynamic_embedding: nn.Module = None,
         mask_inner: bool = True,
@@ -105,23 +104,17 @@ class PolyNetDecoder(AttentionModelDecoder):
         )
 
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embed_dim
-        self.project_node_embeddings = nn.Linear(
-            embed_dim, 3 * embed_dim, bias=linear_bias
-        )
+        self.project_node_embeddings = nn.Linear(embed_dim, 3 * embed_dim, bias=linear_bias)
         self.project_fixed_context = nn.Linear(embed_dim, embed_dim, bias=linear_bias)
         self.use_graph_context = use_graph_context
 
-    def _precompute_cache_matnet(
-        self, embeddings: Tuple[Tensor, Tensor], *args, **kwargs
-    ):
+    def _precompute_cache_matnet(self, embeddings: tuple[Tensor, Tensor], *args, **kwargs):
         col_emb, row_emb = embeddings
         (
             glimpse_key_fixed,
             glimpse_val_fixed,
             logit_key,
-        ) = self.project_node_embeddings(
-            col_emb
-        ).chunk(3, dim=-1)
+        ) = self.project_node_embeddings(col_emb).chunk(3, dim=-1)
 
         # Optionally disable the graph context from the initial embedding as done in POMO
         if self.use_graph_context:
@@ -138,7 +131,7 @@ class PolyNetDecoder(AttentionModelDecoder):
             logit_key=logit_key,
         )
 
-    def _precompute_cache(self, embeddings: Tuple[Tensor, Tensor], *args, **kwargs):
+    def _precompute_cache(self, embeddings: tuple[Tensor, Tensor], *args, **kwargs):
         if self.encoder_type == "AM":
             return super()._precompute_cache(embeddings, *args, **kwargs)
         elif self.encoder_type == "MatNet":

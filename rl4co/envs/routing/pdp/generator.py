@@ -1,4 +1,4 @@
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
@@ -36,8 +36,8 @@ class PDPGenerator(Generator):
         min_loc: float = 0.0,
         max_loc: float = 1.0,
         init_sol_type: str = "random",
-        loc_distribution: Union[int, float, str, type, Callable] = Uniform,
-        depot_distribution: Union[int, float, str, type, Callable] = None,
+        loc_distribution: int | float | str | type | Callable = Uniform,
+        depot_distribution: int | float | str | type | Callable = None,
         **kwargs,
     ):
         self.num_loc = num_loc
@@ -47,26 +47,24 @@ class PDPGenerator(Generator):
 
         # Number of locations must be even
         if num_loc % 2 != 0:
-            log.warn(
-                "Number of locations must be even. Adding 1 to the number of locations."
-            )
+            log.warning("Number of locations must be even. Adding 1 to the number of locations.")
             self.num_loc += 1
 
         # Location distribution
         if kwargs.get("loc_sampler", None) is not None:
             self.loc_sampler = kwargs["loc_sampler"]
         else:
-            self.loc_sampler = get_sampler(
-                "loc", loc_distribution, min_loc, max_loc, **kwargs
-            )
+            self.loc_sampler = get_sampler("loc", loc_distribution, min_loc, max_loc, **kwargs)
 
         # Depot distribution
         if kwargs.get("depot_sampler", None) is not None:
             self.depot_sampler = kwargs["depot_sampler"]
         else:
-            self.depot_sampler = get_sampler(
-                "depot", depot_distribution, min_loc, max_loc, **kwargs
-            ) if depot_distribution is not None else None
+            self.depot_sampler = (
+                get_sampler("depot", depot_distribution, min_loc, max_loc, **kwargs)
+                if depot_distribution is not None
+                else None
+            )
 
     def _generate(self, batch_size) -> TensorDict:
         # Sample locations: depot and customers
@@ -108,8 +106,7 @@ class PDPGenerator(Generator):
 
                 add_index = (next_selected_node <= order_size).view(-1)
                 pairing = (
-                    next_selected_node[next_selected_node <= order_size].view(-1, 1)
-                    + order_size
+                    next_selected_node[next_selected_node <= order_size].view(-1, 1) + order_size
                 )
                 candidates[add_index] = candidates[add_index].scatter_(1, pairing, 1)
 
@@ -137,8 +134,7 @@ class PDPGenerator(Generator):
 
                 add_index = (next_selected_node <= order_size).view(-1)
                 pairing = (
-                    next_selected_node[next_selected_node <= order_size].view(-1, 1)
-                    + order_size
+                    next_selected_node[next_selected_node <= order_size].view(-1, 1) + order_size
                 )
                 candidates[add_index] = candidates[add_index].scatter_(1, pairing, 1)
 

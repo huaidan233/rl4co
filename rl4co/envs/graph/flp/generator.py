@@ -1,6 +1,6 @@
 import math
 
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
@@ -37,7 +37,7 @@ class FLPGenerator(Generator):
         num_loc: int = 100,
         min_loc: float = 0.0,
         max_loc: float = 1.0,
-        loc_distribution: Union[int, float, str, type, Callable] = Uniform,
+        loc_distribution: int | float | str | type | Callable = Uniform,
         to_choose: int = 10,
         **kwargs,
     ):
@@ -50,9 +50,7 @@ class FLPGenerator(Generator):
         if kwargs.get("loc_sampler", None) is not None:
             self.loc_sampler = kwargs["loc_sampler"]
         else:
-            self.loc_sampler = get_sampler(
-                "loc", loc_distribution, min_loc, max_loc, **kwargs
-            )
+            self.loc_sampler = get_sampler("loc", loc_distribution, min_loc, max_loc, **kwargs)
 
     def _generate(self, batch_size) -> TensorDict:
         # Sample locations
@@ -64,9 +62,7 @@ class FLPGenerator(Generator):
             {
                 "locs": locs,
                 "orig_distances": distances,
-                "distances": torch.full(
-                    (*batch_size, self.num_loc), max_dist, dtype=torch.float
-                ),
+                "distances": torch.full((*batch_size, self.num_loc), max_dist, dtype=torch.float),
                 "chosen": torch.zeros(*batch_size, self.num_loc, dtype=torch.bool),
                 "to_choose": torch.ones(*batch_size, dtype=torch.long) * self.to_choose,
             },

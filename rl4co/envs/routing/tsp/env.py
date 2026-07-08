@@ -1,14 +1,7 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import ImprovementEnvBase, RL4COEnvBase
 from rl4co.utils.ops import gather_by_index, get_distance, get_tour_length
@@ -92,7 +85,7 @@ class TSPEnv(RL4COEnvBase):
         )
         return td
 
-    def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         # Initialize locations
         device = td.device
         init_locs = td["locs"]
@@ -120,39 +113,39 @@ class TSPEnv(RL4COEnvBase):
         )
 
     def _make_spec(self, generator: TSPGenerator):
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc, 2),
                 dtype=torch.float32,
             ),
-            first_node=UnboundedDiscreteTensorSpec(
+            first_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            i=UnboundedDiscreteTensorSpec(
+            i=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_loc),
                 dtype=torch.bool,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1),
             dtype=torch.int64,
             low=0,
             high=generator.num_loc,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1))
+        self.done_spec = Unbounded(shape=(1), dtype=torch.bool)
 
     def _get_reward(self, td: TensorDict, actions: torch.Tensor) -> torch.Tensor:
         if self.check_solution:
@@ -166,9 +159,7 @@ class TSPEnv(RL4COEnvBase):
     def check_solution_validity(td: TensorDict, actions: torch.Tensor) -> None:
         """Check that solution is valid: nodes are visited exactly once"""
         assert (
-            torch.arange(actions.size(1), out=actions.data.new())
-            .view(1, -1)
-            .expand_as(actions)
+            torch.arange(actions.size(1), out=actions.data.new()).view(1, -1).expand_as(actions)
             == actions.data.sort(1)[0]
         ).all(), "Invalid tour"
 
@@ -191,9 +182,9 @@ class TSPEnv(RL4COEnvBase):
 
     @staticmethod
     def local_search(td: TensorDict, actions: torch.Tensor, **kwargs) -> torch.Tensor:
-        assert (
-            local_search is not None
-        ), "Cannot import local_search module. Check if `numba` is installed."
+        assert local_search is not None, (
+            "Cannot import local_search module. Check if `numba` is installed."
+        )
         return local_search(td, actions, **kwargs)
 
     @staticmethod
@@ -253,7 +244,7 @@ class TSPkoptEnv(ImprovementEnvBase):
         cost_bsf = td["cost_bsf"]
         bs, gs = solution_best.size()
 
-        # perform loca_operator
+        # perform local_operator
         if solution_to is None:
             action = td["action"]
             solution = td["rec_current"]
@@ -293,7 +284,7 @@ class TSPkoptEnv(ImprovementEnvBase):
 
         return td
 
-    def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         device = td.device
 
         locs = td["locs"]
@@ -305,7 +296,7 @@ class TSPkoptEnv(ImprovementEnvBase):
         bs = batch_size[0]
         seq_length = self.generator.num_loc
         visited_time = torch.zeros((bs, seq_length)).to(device)
-        pre = torch.zeros((bs)).to(device).long()
+        pre = torch.zeros(bs).to(device).long()
         arange = torch.arange(bs)
         for i in range(seq_length):
             current_nodes = current_rec[arange, pre]
@@ -351,9 +342,7 @@ class TSPkoptEnv(ImprovementEnvBase):
             cur = first
             for i in range(self.generator.num_loc):
                 cur_next = solution.gather(1, cur)
-                rec.scatter_(
-                    1, cur_next, torch.where(cur != second, cur, rec.gather(1, cur_next))
-                )
+                rec.scatter_(1, cur_next, torch.where(cur != second, cur, rec.gather(1, cur_next)))
                 cur = torch.where(cur != second, cur_next, cur)
 
             rec_next = rec
@@ -393,47 +382,47 @@ class TSPkoptEnv(ImprovementEnvBase):
 
     def _make_spec(self, generator: TSPGenerator):
         """Make the observation and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=generator.min_loc,
                 high=generator.max_loc,
                 shape=(generator.num_loc, 2),
                 dtype=torch.float32,
             ),
-            cost_current=UnboundedContinuousTensorSpec(
+            cost_current=Unbounded(
                 shape=(1),
                 dtype=torch.float32,
             ),
-            cost_bsf=UnboundedContinuousTensorSpec(
+            cost_bsf=Unbounded(
                 shape=(1),
                 dtype=torch.float32,
             ),
-            rec_current=UnboundedDiscreteTensorSpec(
+            rec_current=Unbounded(
                 shape=(self.generator.num_loc),
                 dtype=torch.int64,
             ),
-            rec_best=UnboundedDiscreteTensorSpec(
+            rec_best=Unbounded(
                 shape=(self.generator.num_loc),
                 dtype=torch.int64,
             ),
-            visited_time=UnboundedDiscreteTensorSpec(
+            visited_time=Unbounded(
                 shape=(self.generator.num_loc, self.generator.num_loc),
                 dtype=torch.int64,
             ),
-            i=UnboundedDiscreteTensorSpec(
+            i=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(self.k_max * 3,),
             dtype=torch.int64,
             low=0,
             high=self.generator.num_loc,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     def check_solution_validity(self, td, actions=None):
         # The function can be called by the agent to check the validity of the best found solution
@@ -443,9 +432,7 @@ class TSPkoptEnv(ImprovementEnvBase):
         batch_size, graph_size = solution.size()
 
         assert (
-            torch.arange(graph_size, out=solution.data.new())
-            .view(1, -1)
-            .expand_as(solution)
+            torch.arange(graph_size, out=solution.data.new()).view(1, -1).expand_as(solution)
             == solution.data.sort(1)[0]
         ).all(), "Not visiting all nodes"
 
@@ -492,9 +479,7 @@ class TSPkoptEnv(ImprovementEnvBase):
                     1 - value_max.view(-1, 1) < 1e-5, action_max.view(-1, 1), action
                 )  ### fix bug of pytorch
                 if i > 0:
-                    action = torch.where(
-                        stopped.unsqueeze(-1), action_index[:, :1], action
-                    )
+                    action = torch.where(stopped.unsqueeze(-1), action_index[:, :1], action)
 
                 # Store and Process actions
                 next_of_new_action = rec.gather(1, action)
@@ -513,23 +498,19 @@ class TSPkoptEnv(ImprovementEnvBase):
 
                 # Calc next basic masks
                 if i == 0:
-                    visited_time_tag = (
-                        visited_time - visited_time.gather(1, action)
-                    ) % gs
+                    visited_time_tag = (visited_time - visited_time.gather(1, action)) % gs
                 mask &= False
                 mask[(visited_time_tag <= visited_time_tag.gather(1, action))] = True
                 if i == 0:
                     mask[visited_time_tag > (gs - 2)] = True
-                mask[
-                    stopped, action[stopped].squeeze()
-                ] = False  # allow next k-opt starts immediately
+                mask[stopped, action[stopped].squeeze()] = (
+                    False  # allow next k-opt starts immediately
+                )
                 # if True:#i == self.k_max - 2: # allow special case: close k-opt at the first selected node
                 index_allow_first_node = (~stopped) & (
                     next_of_new_action.squeeze() == action_index[:, 0]
                 )
-                mask[
-                    index_allow_first_node, action_index[index_allow_first_node, 0]
-                ] = False
+                mask[index_allow_first_node, action_index[index_allow_first_node, 0]] = False
 
                 # Move to next
                 next_of_last_action = next_of_new_action
@@ -556,9 +537,7 @@ class DenseRewardTSPEnv(TSPEnv):
     to the current tour by the given action.
     """
 
-    def __init__(
-        self, generator: TSPGenerator = None, generator_params: dict = {}, **kwargs
-    ):
+    def __init__(self, generator: TSPGenerator = None, generator_params: dict = {}, **kwargs):
         super().__init__(
             generator,
             generator_params,

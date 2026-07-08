@@ -12,7 +12,7 @@ class NonAutoregressivePolicy(ConstructivePolicy):
     def __init__(
         self,
         encoder: NonAutoregressiveEncoder,
-        decoder: NonAutoregressiveDecoder = None,
+        decoder: NonAutoregressiveDecoder | None = None,
         env_name: str = "tsp",
         temperature: float = 1.0,
         tanh_clipping: float = 0,
@@ -26,7 +26,7 @@ class NonAutoregressivePolicy(ConstructivePolicy):
         if decoder is None:
             decoder = NonAutoregressiveDecoder()
 
-        super(NonAutoregressivePolicy, self).__init__(
+        super().__init__(
             encoder=encoder,
             decoder=decoder,
             env_name=env_name,

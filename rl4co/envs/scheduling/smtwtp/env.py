@@ -1,14 +1,7 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.pylogger import get_pylogger
@@ -47,7 +40,7 @@ class SMTWTPEnv(RL4COEnvBase):
 
     Finishing condition:
         - All jobs are processed
-    
+
     Reward:
         - The reward is 0 unless the agent processes all the jobs.
         - In that case, the reward is (-)objective value of the processing order: maximizing the reward is equivalent to minimizing the objective.
@@ -103,7 +96,7 @@ class SMTWTPEnv(RL4COEnvBase):
         )
         return td
 
-    def _reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def _reset(self, td: TensorDict | None = None, batch_size=None) -> TensorDict:
         device = td.device
 
         init_job_due_time = td["job_due_time"]
@@ -131,47 +124,47 @@ class SMTWTPEnv(RL4COEnvBase):
         )
 
     def _make_spec(self, generator: SMTWTPGenerator) -> None:
-        self.observation_spec = CompositeSpec(
-            job_due_time=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            job_due_time=Bounded(
                 low=generator.min_time_span,
                 high=generator.max_time_span,
                 shape=(generator.num_job + 1,),
                 dtype=torch.float32,
             ),
-            job_weight=BoundedTensorSpec(
+            job_weight=Bounded(
                 low=generator.min_job_weight,
                 high=generator.max_job_weight,
                 shape=(generator.num_job + 1,),
                 dtype=torch.float32,
             ),
-            job_process_time=BoundedTensorSpec(
+            job_process_time=Bounded(
                 low=generator.min_process_time,
                 high=generator.max_process_time,
                 shape=(generator.num_job + 1,),
                 dtype=torch.float32,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1,),
                 dtype=torch.int64,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(generator.num_job + 1,),
                 dtype=torch.bool,
             ),
-            current_time=UnboundedContinuousTensorSpec(
+            current_time=Unbounded(
                 shape=(1,),
                 dtype=torch.float32,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(1,),
             dtype=torch.int64,
             low=0,
             high=generator.num_job + 1,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=(1,))
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool)
 
     def _get_reward(self, td, actions) -> TensorDict:
         job_due_time = td["job_due_time"]
@@ -185,9 +178,7 @@ class SMTWTPEnv(RL4COEnvBase):
         ordered_process_time = job_process_time[batch_idx, actions]
         ordered_due_time = job_due_time[batch_idx, actions]
         ordered_job_weight = job_weight[batch_idx, actions]
-        presum_process_time = torch.cumsum(
-            ordered_process_time, dim=1
-        )  # ending time of each job
+        presum_process_time = torch.cumsum(ordered_process_time, dim=1)  # ending time of each job
         job_tardiness = presum_process_time - ordered_due_time
         job_tardiness[job_tardiness < 0] = 0
         job_weighted_tardiness = ordered_job_weight * job_tardiness
@@ -200,4 +191,4 @@ class SMTWTPEnv(RL4COEnvBase):
 
     @staticmethod
     def render(td, actions=None, ax=None):
-        raise render(td, actions, ax)
+        return render(td, actions, ax)

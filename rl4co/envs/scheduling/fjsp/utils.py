@@ -1,7 +1,5 @@
 import logging
 
-from typing import List, Tuple, Union
-
 import torch
 
 from tensordict import TensorDict
@@ -16,9 +14,7 @@ def get_op_features(td: TensorDict):
     return torch.stack((td["lbs"], td["is_ready"], td["num_eligible"]), dim=-1)
 
 
-def cat_and_norm_features(
-    td: TensorDict, feats: List[str], time_feats: List[str], norm_const: int
-):
+def cat_and_norm_features(td: TensorDict, feats: list[str], time_feats: list[str], norm_const: int):
     # logger.info(f"will scale the features {','.join(time_feats)} with a constant ({norm_const})")
     feature_list = []
     for feat in feats:
@@ -32,10 +28,10 @@ def cat_and_norm_features(
 
 def view(
     tensor: Tensor,
-    idx: Tuple[Tensor],
+    idx: tuple[Tensor],
     pad_mask: Tensor,
-    new_shape: Union[Size, List[int]],
-    pad_value: Union[float, int],
+    new_shape: Size | list[int],
+    pad_value: float | int,
 ):
     # convert mask specifying which entries are padded into mask specifying which entries to keep
     mask = ~pad_mask
@@ -67,9 +63,7 @@ def _get_idx_for_job_op_view(td: TensorDict) -> tuple:
     return b, j, o
 
 
-def get_job_op_view(
-    td: TensorDict, keys: List[str] = [], pad_value: Union[float, int] = 0
-):
+def get_job_op_view(td: TensorDict, keys: list[str] = [], pad_value: float | int = 0):
     """This function reshapes all tensors of the tensordict from a flat operations-only view
     to a nested job-operation view and creates a new tensordict from it.
     :param _type_ td: tensordict
@@ -95,15 +89,13 @@ def get_job_op_view(
     if "pad_mask" not in keys:
         keys.append("pad_mask")
 
-    new_views = dict(
-        map(lambda key: (key, view(td[key], idx, pad_mask, new_shape)), keys)
-    )
+    new_views = dict(map(lambda key: (key, view(td[key], idx, pad_mask, new_shape)), keys))
 
     # update tensordict clone with reshaped tensors
     return {"proc_times": new_proc_times_view, **new_views}
 
 
-def blockify(td, tensor: Tensor, pad_value: Union[float, int] = 0):
+def blockify(td, tensor: Tensor, pad_value: float | int = 0):
     assert len(tensor.shape) in [
         2,
         3,
@@ -121,13 +113,13 @@ def blockify(td, tensor: Tensor, pad_value: Union[float, int] = 0):
     return new_view_tensor
 
 
-def unblockify(
-    td: TensorDict, tensor: Tensor, mask: Tensor = None, pad_value: Union[float, int] = 0
-):
+def unblockify(td: TensorDict, tensor: Tensor, mask: Tensor = None, pad_value: float | int = 0):
     assert len(tensor.shape) in [
         3,
         4,
-    ], "blockify only supports tensors of shape (bs, nb, s, (d)), where the feature dim d is optional"
+    ], (
+        "blockify only supports tensors of shape (bs, nb, s, (d)), where the feature dim d is optional"
+    )
     # get the size of the blockified tensor
     bs, _, _, *d = tensor.shape
     n_ops_per_batch = td["job_ops_adj"].sum((1, 2)).unsqueeze(1)  # (bs)
@@ -178,9 +170,9 @@ def spatial_encoding(td: TensorDict):
     same_job[pad_mask.unsqueeze(2).expand_as(same_job)] = 0
     same_job[pad_mask.unsqueeze(1).expand_as(same_job)] = 0
     # take upper triangular of same_job and set diagonal to zero for counting purposes
-    upper_tri = torch.triu(same_job) - torch.diag(
-        torch.ones(n_total_ops, device=td.device)
-    )[None].expand_as(same_job)
+    upper_tri = torch.triu(same_job) - torch.diag(torch.ones(n_total_ops, device=td.device))[
+        None
+    ].expand_as(same_job)
     # cumsum and masking of operations that do not belong to the same job
     num_jumps = upper_tri.cumsum(2) * upper_tri
     # mirror the matrix
@@ -230,9 +222,7 @@ def calc_lower_bound(td: TensorDict):
     # using the start_time, we can determine if and how long an op needs to wait for a machine to finish
     wait_for_ma_offset = torch.clip(busy_until[..., None] - maybe_start_at[:, None], 0)
     # we add this required waiting time to the respective processing time
-    proc_time_plus_wait = torch.where(
-        proc_times == 0, proc_times, proc_times + wait_for_ma_offset
-    )
+    proc_time_plus_wait = torch.where(proc_times == 0, proc_times, proc_times + wait_for_ma_offset)
     # NOTE get the mean processing time over all eligible machines for lb calulation
     # ops_proc_times = torch.where(proc_times == 0, torch.inf, proc_time_plus_wait).min(1).values)
     ops_proc_times = proc_time_plus_wait.sum(1) / (proc_times.gt(0).sum(1) + 1e-9)
@@ -244,17 +234,13 @@ def calc_lower_bound(td: TensorDict):
     # sum over the processing time to determine the lower bound of unscheduled operations...
     proc_matrix = job_ops_adj
     ops_assigned = proc_matrix * op_scheduled[:, None]
-    proc_matrix_not_scheduled = proc_matrix * (
-        torch.ones_like(proc_matrix) - op_scheduled[:, None]
-    )
+    proc_matrix_not_scheduled = proc_matrix * (torch.ones_like(proc_matrix) - op_scheduled[:, None])
 
     # ...and add the finish_time of the last scheduled operation of the respective job to that. To make this work, using the cumsum logic,
     # we calc the first differences of the finish times and seperate by job.
     # We use the first differences, so that the finish times do not add up during cumulative sum below
     # (bs, num_jobs, num_ops)
-    finish_times_1st_diff = ops_assigned * first_diff(
-        ops_assigned * finish_times[:, None], 2
-    )
+    finish_times_1st_diff = ops_assigned * first_diff(ops_assigned * finish_times[:, None], 2)
 
     # masking the processing time of scheduled operations and add their finish times instead (first diff thereof)
     lb_end_expand = (
@@ -267,9 +253,7 @@ def calc_lower_bound(td: TensorDict):
     LBs = torch.nan_to_num(LBs, nan=0.0)
 
     # test
-    assert torch.where(
-        finish_times != INIT_FINISH, torch.isclose(LBs, finish_times), True
-    ).all()
+    assert torch.where(finish_times != INIT_FINISH, torch.isclose(LBs, finish_times), True).all()
 
     return LBs
 
@@ -288,7 +272,7 @@ def op_is_ready(td: TensorDict):
 
 def get_job_ops_mapping(
     start_op_per_job: torch.Tensor, end_op_per_job: torch.Tensor, n_ops_max: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Implements a mapping function from operations to jobs
 
     :param torch.Tensor start_op_per_job: index of first operation of each job
@@ -308,9 +292,7 @@ def get_job_ops_mapping(
     # here we will generate the operations-job mapping:
     # Therefore we first generate a sequence of operation ids and expand it the the size of the mapping matrix:
     # (bs, jobs, max_ops)
-    ops_seq_exp = torch.arange(n_ops_max, device=device)[None, None].expand(
-        bs, num_jobs, -1
-    )
+    ops_seq_exp = torch.arange(n_ops_max, device=device)[None, None].expand(bs, num_jobs, -1)
     # (bs, jobs, max_ops)  # expanding start and end operation ids
     end_op_per_job_exp = end_op_per_job[..., None].expand_as(ops_seq_exp)
     start_op_per_job_exp = start_op_per_job[..., None].expand_as(ops_seq_exp)

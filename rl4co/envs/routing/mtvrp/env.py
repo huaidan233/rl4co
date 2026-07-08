@@ -1,14 +1,7 @@
-from typing import Optional
-
 import torch
 
 from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
+from torchrl.data import Bounded, Composite, Unbounded
 
 from rl4co.data.utils import load_npz_to_tensordict
 from rl4co.envs.common.base import RL4COEnvBase
@@ -42,7 +35,7 @@ class MTVRPEnv(RL4COEnvBase):
         - Imposes a limit on the total travel duration (or length) of each route, ensuring a balanced workload across vehicles.
 
     The environment covers the following 16 variants depending on the data generation:
-    
+
     | VRP Variant | Capacity (C) | Open Route (O) | Backhaul (B) | Duration Limit (L) | Time Window (TW) |
     | :---------- | :----------: | :------------: | :----------: | :----------------: | :--------------: |
     | CVRP        |      ✔       |                |              |                    |                  |
@@ -66,7 +59,7 @@ class MTVRPEnv(RL4COEnvBase):
     - ["Multi-Task Learning for Routing Problem with Cross-Problem Zero-Shot Generalization" (Liu et al, 2024)](https://arxiv.org/abs/2402.16891)
     - ["MVMoE: Multi-Task Vehicle Routing Solver with Mixture-of-Experts" (Zhou et al, 2024)](https://arxiv.org/abs/2405.01029)
     - ["RouteFinder: Towards Foundation Models for Vehicle Routing Problems" (Berto et al, 2024)](https://arxiv.org/abs/2406.15007)
-    
+
     Tip:
         Have a look at https://pyvrp.org/ for more information about VRP and its variants and their solutions. Kudos to their help and great job!
 
@@ -105,22 +98,17 @@ class MTVRPEnv(RL4COEnvBase):
         distance = get_distance(prev_loc, curr_loc)[..., None]
 
         # Update current time
-        service_time = gather_by_index(
-            src=td["service_time"], idx=curr_node, dim=1, squeeze=False
-        )
-        start_times = gather_by_index(
-            src=td["time_windows"], idx=curr_node, dim=1, squeeze=False
-        )[..., 0]
+        service_time = gather_by_index(src=td["service_time"], idx=curr_node, dim=1, squeeze=False)
+        start_times = gather_by_index(src=td["time_windows"], idx=curr_node, dim=1, squeeze=False)[
+            ..., 0
+        ]
         # we cannot start before we arrive and we should start at least at start times
         curr_time = (curr_node[:, None] != 0) * (
-            torch.max(td["current_time"] + distance / td["speed"], start_times)
-            + service_time
+            torch.max(td["current_time"] + distance / td["speed"], start_times) + service_time
         )
 
         # Update current route length (reset at depot)
-        curr_route_length = (curr_node[:, None] != 0) * (
-            td["current_route_length"] + distance
-        )
+        curr_route_length = (curr_node[:, None] != 0) * (td["current_route_length"] + distance)
 
         # Linehaul (delivery) demands
         selected_demand_linehaul = gather_by_index(
@@ -163,8 +151,8 @@ class MTVRPEnv(RL4COEnvBase):
 
     def _reset(
         self,
-        td: Optional[TensorDict] = None,
-        batch_size: Optional[list] = None,
+        td: TensorDict | None = None,
+        batch_size: list | None = None,
     ) -> TensorDict:
         device = td.device
 
@@ -181,9 +169,7 @@ class MTVRPEnv(RL4COEnvBase):
                 "vehicle_capacity": td["vehicle_capacity"],
                 "capacity_original": td["capacity_original"],
                 "speed": td["speed"],
-                "current_node": torch.zeros(
-                    (*batch_size,), dtype=torch.long, device=device
-                ),
+                "current_node": torch.zeros((*batch_size,), dtype=torch.long, device=device),
                 "current_route_length": torch.zeros(
                     (*batch_size, 1), dtype=torch.float32, device=device
                 ),  # for distance limits
@@ -233,15 +219,12 @@ class MTVRPEnv(RL4COEnvBase):
 
         # Distance limit (L): do not add distance to depot if open route (O)
         exceeds_dist_limit = (
-            td["current_route_length"] + d_ij + (d_j0 * ~td["open_route"])
-            > td["distance_limit"]
+            td["current_route_length"] + d_ij + (d_j0 * ~td["open_route"]) > td["distance_limit"]
         )
 
         # Linehaul demand / delivery (C) and backhaul demand / pickup (B)
         # All linehauls are visited before backhauls
-        linehauls_missing = ((td["demand_linehaul"] * ~td["visited"]).sum(-1) > 0)[
-            ..., None
-        ]
+        linehauls_missing = ((td["demand_linehaul"] * ~td["visited"]).sum(-1) > 0)[..., None]
         is_carrying_backhaul = (
             gather_by_index(
                 src=td["demand_backhaul"],
@@ -312,9 +295,9 @@ class MTVRPEnv(RL4COEnvBase):
         d_j0 = get_distance(locs, locs[..., 0:1, :])  # j (next) -> 0 (depot)
         assert torch.all(td["time_windows"] >= 0.0), "Time windows must be non-negative."
         assert torch.all(td["service_time"] >= 0.0), "Service time must be non-negative."
-        assert torch.all(
-            td["time_windows"][..., 0] < td["time_windows"][..., 1]
-        ), "there are unfeasible time windows"
+        assert torch.all(td["time_windows"][..., 0] < td["time_windows"][..., 1]), (
+            "there are unfeasible time windows"
+        )
         assert torch.all(
             td["time_windows"][..., :, 0] + d_j0 + td["service_time"]
             <= td["time_windows"][..., 0, 1, None]
@@ -333,17 +316,17 @@ class MTVRPEnv(RL4COEnvBase):
             curr_length = curr_length + dist * ~(
                 td["open_route"].squeeze(-1) & (next_node == 0)
             )  # do not count back to depot for open route
-            assert torch.all(
-                curr_length <= td["distance_limit"].squeeze(-1)
-            ), "Route exceeds distance limit"
+            assert torch.all(curr_length <= td["distance_limit"].squeeze(-1)), (
+                "Route exceeds distance limit"
+            )
             curr_length[next_node == 0] = 0.0  # reset length for depot
 
             curr_time = torch.max(
                 curr_time + dist, gather_by_index(td["time_windows"], next_node)[..., 0]
             )
-            assert torch.all(
-                curr_time <= gather_by_index(td["time_windows"], next_node)[..., 1]
-            ), "vehicle cannot start service before deadline"
+            assert torch.all(curr_time <= gather_by_index(td["time_windows"], next_node)[..., 1]), (
+                "vehicle cannot start service before deadline"
+            )
             curr_time = curr_time + gather_by_index(td["service_time"], next_node)
             curr_node = next_node
             curr_time[curr_node == 0] = 0.0  # reset time for depot
@@ -357,9 +340,9 @@ class MTVRPEnv(RL4COEnvBase):
                 # reset at depot
                 used_cap = used_cap * (actions[:, ii] != 0)
                 used_cap += demand[:, ii]
-                assert (
-                    used_cap <= td["vehicle_capacity"]
-                ).all(), "Used more than capacity for {}: {}".format(feature, used_cap)
+                assert (used_cap <= td["vehicle_capacity"]).all(), (
+                    f"Used more than capacity for {feature}: {used_cap}"
+                )
 
         _check_c1("demand_linehaul")
         _check_c1("demand_backhaul")
@@ -391,9 +374,7 @@ class MTVRPEnv(RL4COEnvBase):
         """Select available start nodes for the environment (e.g. for POMO-based training)"""
         num_loc = td["locs"].shape[-2] - 1
         selected = (
-            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0])
-            % num_loc
-            + 1
+            torch.arange(num_starts, device=td.device).repeat_interleave(td.shape[0]) % num_loc + 1
         )
         return selected
 
@@ -415,53 +396,49 @@ class MTVRPEnv(RL4COEnvBase):
     def _make_spec(self, td_params: TensorDict):
         # TODO: include extra vars (but we don't really need them for now)
         """Make the observation and action specs from the parameters."""
-        self.observation_spec = CompositeSpec(
-            locs=BoundedTensorSpec(
+        self.observation_spec = Composite(
+            locs=Bounded(
                 low=self.generator.min_loc,
                 high=self.generator.max_loc,
                 shape=(self.generator.num_loc + 1, 2),
                 dtype=torch.float32,
                 device=self.device,
             ),
-            current_node=UnboundedDiscreteTensorSpec(
+            current_node=Unbounded(
                 shape=(1),
                 dtype=torch.int64,
                 device=self.device,
             ),
-            demand_linehaul=BoundedTensorSpec(
+            demand_linehaul=Bounded(
                 low=-self.generator.capacity,
                 high=self.generator.max_demand,
                 shape=(self.generator.num_loc, 1),  # demand is only for customers
                 dtype=torch.float32,
                 device=self.device,
             ),
-            demand_backhaul=BoundedTensorSpec(
+            demand_backhaul=Bounded(
                 low=-self.generator.capacity,
                 high=self.generator.max_demand,
                 shape=(self.generator.num_loc, 1),  # demand is only for customers
                 dtype=torch.float32,
                 device=self.device,
             ),
-            action_mask=UnboundedDiscreteTensorSpec(
+            action_mask=Unbounded(
                 shape=(self.generator.num_loc + 1, 1),
                 dtype=torch.bool,
                 device=self.device,
             ),
             shape=(),
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             low=0,
             high=self.generator.num_loc + 1,
             shape=(1,),
             dtype=torch.int64,
             device=self.device,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(
-            shape=(1,), dtype=torch.float32, device=self.device
-        )
-        self.done_spec = UnboundedDiscreteTensorSpec(
-            shape=(1,), dtype=torch.bool, device=self.device
-        )
+        self.reward_spec = Unbounded(shape=(1,), dtype=torch.float32, device=self.device)
+        self.done_spec = Unbounded(shape=(1,), dtype=torch.bool, device=self.device)
 
     @staticmethod
     def check_variants(td):
@@ -481,9 +458,7 @@ class MTVRPEnv(RL4COEnvBase):
             has_backhaul,
         ) = MTVRPEnv.check_variants(td)
         instance_names = []
-        for o, b, l_, tw in zip(
-            has_open, has_backhaul, has_duration_limit, has_time_window
-        ):
+        for o, b, l_, tw in zip(has_open, has_backhaul, has_duration_limit, has_time_window):
             if not o and not b and not l_ and not tw:
                 instance_name = "CVRP"
             else:

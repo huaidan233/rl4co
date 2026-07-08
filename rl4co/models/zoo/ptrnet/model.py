@@ -1,5 +1,3 @@
-from typing import Union
-
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.models.rl import REINFORCE
 from rl4co.models.rl.reinforce.baselines import REINFORCEBaseline
@@ -24,12 +22,10 @@ class PointerNetwork(REINFORCE):
         self,
         env: RL4COEnvBase,
         policy: PointerNetworkPolicy = None,
-        baseline: Union[REINFORCEBaseline, str] = "rollout",
+        baseline: REINFORCEBaseline | str = "rollout",
         policy_kwargs={},
         baseline_kwargs={},
         **kwargs,
     ):
-        policy = (
-            PointerNetworkPolicy(env=env, **policy_kwargs) if policy is None else policy
-        )
+        policy = PointerNetworkPolicy(env=env, **policy_kwargs) if policy is None else policy
         super().__init__(env, policy, baseline, baseline_kwargs, **kwargs)
