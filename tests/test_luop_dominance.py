@@ -67,6 +67,15 @@ def test_luop_dominance_reward_is_finite_and_not_weighted_sum():
     assert info["hypervolume_contribution"].shape == (1, 4)
 
 
+def test_luop_dominance_reward_is_order_invariant_for_identical_points():
+    points = torch.tensor([[[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]])
+
+    reward, info = dominance_reward(points, return_info=True)
+
+    assert torch.equal(info["crowding_distance"], torch.zeros_like(reward))
+    assert torch.allclose(reward, reward[..., :1].expand_as(reward))
+
+
 def _small_env():
     return landuseOptEnv(
         generator_params={"num_loc": 4, "num_fixed": 0},
@@ -138,6 +147,33 @@ def test_luop_dominance_policy_keeps_multi_action_outputs_valid():
 
     assert torch.equal(encoded[valid], out["actions"][valid])
     assert out["current_plan"].shape == (2, 4)
+
+
+def test_luop_dominance_expansion_keeps_candidate_dim_for_shared_baseline():
+    env = _small_env()
+    model = LUOPDominanceAttentionModel(
+        env,
+        baseline="shared",
+        num_dominance_candidates=3,
+        batch_size=4,
+        train_data_size=4,
+        val_data_size=2,
+        test_data_size=2,
+        policy_kwargs={
+            "embed_dim": 32,
+            "num_encoder_layers": 1,
+            "num_heads": 4,
+            "feedforward_hidden": 64,
+        },
+    )
+    batch = env.generator(batch_size=[2, 2])
+
+    expanded = model._expand_candidate_batch(batch)
+    reward = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    baseline, _ = model.baseline.eval(env.reset(expanded), reward, env)
+
+    assert expanded.batch_size == torch.Size([4, 3])
+    assert baseline.shape == (4, 1)
 
 
 def test_luop_weighted_model_remains_importable_and_trainable():

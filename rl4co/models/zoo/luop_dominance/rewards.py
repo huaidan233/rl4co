@@ -67,21 +67,20 @@ def crowding_distance(
             if front.size(0) == 1:
                 flat_distance[row_idx, front_indices] = 1.0
                 continue
-            if front.size(0) == 2:
-                flat_distance[row_idx, front_indices] = 1.0
-                continue
 
             front_distance = front.new_zeros(front.size(0))
             for objective in range(front.size(-1)):
                 values = front[:, objective]
                 order = values.argsort()
                 sorted_values = values[order]
-                scale = (sorted_values[-1] - sorted_values[0]).clamp_min(1e-8)
+                scale = sorted_values[-1] - sorted_values[0]
+                if scale <= 1e-8:
+                    continue
                 front_distance[order[0]] = 1.0
                 front_distance[order[-1]] = 1.0
                 if front.size(0) > 2:
                     increments = (sorted_values[2:] - sorted_values[:-2]) / (
-                        scale * max(2, front.size(-1))
+                        scale.clamp_min(1e-8) * max(2, front.size(-1))
                     )
                     middle = order[1:-1]
                     front_distance[middle] = torch.maximum(

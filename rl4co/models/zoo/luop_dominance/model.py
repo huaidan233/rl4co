@@ -72,9 +72,9 @@ class LUOPDominanceAttentionModel(LUOPAttentionModel):
         return {"loss": out.get("loss", None), **metrics}
 
     def _expand_candidate_batch(self, batch: TensorDict) -> TensorDict:
-        candidate_dim = len(batch.batch_size)
-        expanded = batch.unsqueeze(candidate_dim).expand(
-            *batch.batch_size,
+        flat_batch = batch.reshape(-1)
+        expanded = flat_batch.unsqueeze(1).expand(
+            flat_batch.batch_size[0],
             self.num_dominance_candidates,
         )
         return expanded.clone()
