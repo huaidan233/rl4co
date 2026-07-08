@@ -48,4 +48,3 @@ trainer:
   precision: "32-true" # NOTE: this seems to be important during manual optimization
 
 seed: 1234
-
