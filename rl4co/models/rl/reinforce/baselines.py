@@ -107,7 +107,7 @@ class WarmupBaseline(REINFORCEBaseline):
         self.n_epochs = n_epochs
 
     def wrap_dataset(self, dataset, *args, **kw):
-        if self.alpha > 0:
+        if self.alpha == 1:
             return self.baseline.wrap_dataset(dataset, *args, **kw)
         return self.warmup_baseline.wrap_dataset(dataset, *args, **kw)
 
@@ -168,6 +168,26 @@ class RolloutBaseline(REINFORCEBaseline):
         super().__init__()
         self.bl_alpha = bl_alpha
 
+    @staticmethod
+    def _dataset_has_key(dataset, key):
+        if len(dataset) == 0:
+            return False
+        sample = dataset[0]
+        return key in sample.keys() if isinstance(sample, TensorDict) else key in sample
+
+    def _materialize_rollout_conditioning(self, dataset, env, device="cpu"):
+        """Store rollout-time conditioning variables that must match training."""
+        if (
+            getattr(env, "sample_objective_weights", False)
+            and hasattr(env, "_default_objective_weights")
+            and not self._dataset_has_key(dataset, "objective_weights")
+        ):
+            weights = env._default_objective_weights(
+                torch.Size([len(dataset)]), device
+            ).detach()
+            dataset = dataset.add_key("objective_weights", weights.cpu())
+        return dataset
+
     def setup(self, *args, **kw):
         self._update_policy(*args, **kw)
 
@@ -179,11 +199,18 @@ class RolloutBaseline(REINFORCEBaseline):
         if dataset is None:
             log.info("Creating evaluation dataset for rollout baseline")
             self.dataset = env.dataset(batch_size=[dataset_size])
+        else:
+            self.dataset = dataset
+
+        self.dataset = self._materialize_rollout_conditioning(
+            self.dataset, env, device="cpu"
+        )
 
         log.info("Evaluating baseline policy on evaluation dataset")
         self.bl_vals = (
             self.rollout(self.policy, env, batch_size, device, self.dataset).cpu().numpy()
         )
+        self.policy.eval()
         self.mean = self.bl_vals.mean()
 
     def eval(self, td, reward, env):
@@ -194,7 +221,7 @@ class RolloutBaseline(REINFORCEBaseline):
             Also, it is recommended to use the `rollout` method directly instead of this method.
         """
         with torch.inference_mode():
-            reward = self.policy(td, env)["reward"]
+            reward = self.policy(td, env, decode_type="greedy")["reward"]
         return reward, 0
 
     def epoch_callback(
@@ -215,7 +242,14 @@ class RolloutBaseline(REINFORCEBaseline):
             log.info(f"p-value: {p_val:.3f}")
             if p_val < self.bl_alpha:
                 log.info("Updating baseline")
-                self._update_policy(policy, env, batch_size, device, dataset_size)
+                self._update_policy(
+                    policy,
+                    env,
+                    batch_size,
+                    device,
+                    dataset_size,
+                    dataset=self.dataset,
+                )
 
     def rollout(self, policy, env, batch_size=64, device="cpu", dataset=None):
         """Rollout the policy on the given dataset"""
@@ -223,6 +257,7 @@ class RolloutBaseline(REINFORCEBaseline):
         # if dataset is None, use the dataset of the baseline
         dataset = self.dataset if dataset is None else dataset
 
+        was_training = policy.training
         policy.eval()
         policy = policy.to(device)
 
@@ -233,7 +268,10 @@ class RolloutBaseline(REINFORCEBaseline):
 
         dl = DataLoader(dataset, batch_size=batch_size, collate_fn=dataset.collate_fn)
 
-        rewards = torch.cat([eval_policy(batch) for batch in dl], 0)
+        try:
+            rewards = torch.cat([eval_policy(batch) for batch in dl], 0)
+        finally:
+            policy.train(was_training)
         return rewards
 
     def wrap_dataset(self, dataset, env, batch_size=64, device="cpu", **kw):
@@ -244,7 +282,12 @@ class RolloutBaseline(REINFORCEBaseline):
             at every call but just once. Values are added to the dataset. This also allows for
             larger batch sizes since we evauate the policy without gradients.
         """
-        rewards = self.rollout(self.policy, env, batch_size, device, dataset=dataset).detach().cpu()
+        dataset = self._materialize_rollout_conditioning(dataset, env, device="cpu")
+        rewards = (
+            self.rollout(self.policy, env, batch_size, device, dataset=dataset)
+            .detach()
+            .cpu()
+        )
         return dataset.add_key("extra", rewards)
 
     def __getstate__(self):

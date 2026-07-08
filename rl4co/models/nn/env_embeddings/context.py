@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from tensordict import TensorDict
 
+from rl4co.models.nn.env_embeddings.init import prepare_lop_objective_weights
 from rl4co.utils.ops import batched_scatter_sum, gather_by_index
 
 
@@ -34,7 +35,12 @@ def env_context_embedding(env_name: str, config: dict) -> nn.Module:
         "mtsp": MTSPContext,
         "smtwtp": SMTWTPContext,
         "mtvrp": MTVRPContext,
+        "luop": LOPContext,
         "lop": LOPContext,
+        "lop_nearest": LOPContext,
+        "lop_compatibility": LOPContext,
+        "MAlop": LOPContext,
+        "MAOpt": LOPContext,
         "shpp": TSPContext,
         "flp": FLPContext,
         "mcp": MCPContext,
@@ -143,12 +149,58 @@ class LOPContext(EnvContext):
 
     def __init__(self, embed_dim):
         super(LOPContext, self).__init__(
-            embed_dim=embed_dim, step_context_dim=embed_dim + 8
+            embed_dim=embed_dim, step_context_dim=embed_dim + 8 + 2 + 8 + 8 + 8
         )
 
+    def _cur_node_embedding(self, embeddings, td):
+        return gather_by_index(
+            embeddings,
+            td["current_node"].unsqueeze(-1),
+            dim=-2,
+            squeeze=False,
+        ).squeeze(-2)
+
     def _state_embedding(self, embeddings, td):
-        state_embedding = td["current_types_onehot"]
-        return state_embedding
+        current_type = td["current_types_onehot"].float()
+        pending_type = td.get("pending_type_action", None)
+        if pending_type is None:
+            pending_type_onehot = torch.zeros_like(current_type)
+        else:
+            pending_type = pending_type.long().clamp(0, current_type.size(-1) - 1)
+            pending_type_onehot = torch.nn.functional.one_hot(
+                pending_type, num_classes=current_type.size(-1)
+            ).to(device=current_type.device, dtype=current_type.dtype)
+        objective_weights = prepare_lop_objective_weights(td, current_type)
+        target_ratios = td.get("target_ratios", None)
+        if target_ratios is None:
+            target_ratios = current_type.new_zeros(current_type.shape)
+        safe_plan = td["current_plan"].clamp(min=0)
+        assigned = td["current_plan"] >= 0
+        plan_onehot = torch.nn.functional.one_hot(
+            safe_plan, num_classes=8
+        ).to(device=td["areas"].device, dtype=td["areas"].dtype)
+        plan_onehot = plan_onehot * assigned.unsqueeze(-1).to(dtype=td["areas"].dtype)
+        area_by_type = (plan_onehot * td["areas"].unsqueeze(-1)).sum(dim=-2)
+        total_area = td["areas"].sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        area_ratio_by_type = area_by_type / total_area
+        remaining_deficit = (target_ratios - area_ratio_by_type).clamp_min(0)
+        constraint_pressure = td.get("constraint_pressure", None)
+        if constraint_pressure is None:
+            constraint_pressure = current_type.new_zeros(current_type.shape)
+        constraint_pressure = constraint_pressure.to(
+            device=current_type.device, dtype=current_type.dtype
+        )
+        constraint_pressure = constraint_pressure / total_area
+        return torch.cat(
+            [
+                current_type,
+                objective_weights,
+                remaining_deficit,
+                constraint_pressure,
+                pending_type_onehot,
+            ],
+            dim=-1,
+        )
 
 
     # def forward(self, embeddings, td):

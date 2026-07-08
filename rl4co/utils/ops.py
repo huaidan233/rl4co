@@ -112,8 +112,22 @@ def calculate_entropy(logprobs: Tensor):
 
 
 # TODO: modularize inside the envs
+def _is_luop_env_name(env_name):
+    return env_name in {
+        "luop",
+        "lop",
+        "lop_nearest",
+        "lop_compatibility",
+        "MAlop",
+        "MAOpt",
+    }
+
+
 def get_num_starts(td, env_name=None):
     """Returns the number of possible start nodes for the environment based on the action mask"""
+    if _is_luop_env_name(env_name) and "parcel_action_mask" in td.keys():
+        return int(td["parcel_action_mask"].sum(dim=-1).max().item())
+
     num_starts = td["action_mask"].shape[-1]
     if env_name == "pdp":
         num_starts = (
@@ -123,6 +137,62 @@ def get_num_starts(td, env_name=None):
         num_starts = num_starts - 1  # depot cannot be a start node
 
     return num_starts
+
+
+def _select_luop_start_actions(td, env, num_starts):
+    num_loc = td["locs"].shape[-2]
+    num_types = getattr(env, "num_types", 8)
+    type_parcel_mask = td.get("type_parcel_action_mask", None)
+    if type_parcel_mask is None:
+        type_parcel_mask = td["action_mask"].view(
+            td["action_mask"].shape[0], num_types, num_loc
+        )
+    parcel_mask = td.get("parcel_action_mask", None)
+    if parcel_mask is None:
+        parcel_mask = type_parcel_mask.any(dim=-2)
+
+    batch_size = parcel_mask.shape[0]
+    parcel_idx = torch.arange(num_loc, device=td.device).unsqueeze(0)
+    masked_parcel_idx = torch.where(
+        parcel_mask,
+        parcel_idx.expand(batch_size, -1),
+        torch.full((batch_size, num_loc), num_loc, device=td.device),
+    )
+    selected_parcels = masked_parcel_idx.sort(dim=-1).values[
+        :, : min(num_starts, num_loc)
+    ]
+    if selected_parcels.size(-1) < num_starts:
+        pad = selected_parcels.new_full(
+            (batch_size, num_starts - selected_parcels.size(-1)),
+            num_loc,
+        )
+        selected_parcels = torch.cat([selected_parcels, pad], dim=-1)
+
+    row_has_valid_start = parcel_mask.any(dim=-1, keepdim=True)
+    fallback_start = torch.where(
+        row_has_valid_start,
+        selected_parcels[:, :1].clamp(max=num_loc - 1),
+        torch.zeros_like(selected_parcels[:, :1]),
+    )
+    selected_parcels = torch.where(
+        selected_parcels.eq(num_loc),
+        fallback_start.expand_as(selected_parcels),
+        selected_parcels,
+    )
+
+    parcel_gather_idx = selected_parcels.unsqueeze(1).expand(
+        batch_size, num_types, num_starts
+    )
+    feasible_types_by_start = type_parcel_mask.gather(-1, parcel_gather_idx)
+    type_idx = torch.arange(num_types, device=td.device).view(1, num_types, 1)
+    selected_types = torch.where(
+        feasible_types_by_start,
+        type_idx.expand(batch_size, -1, num_starts),
+        torch.full((batch_size, num_types, num_starts), num_types, device=td.device),
+    ).min(dim=1).values
+    selected_types = selected_types.clamp(max=num_types - 1)
+    selected_actions = selected_types * num_loc + selected_parcels
+    return rearrange(selected_actions, "b n -> (n b)")
 
 
 def select_start_nodes(td, env, num_starts):
@@ -142,6 +212,8 @@ def select_start_nodes(td, env, num_starts):
         )
     elif env.name in ["jssp", "fjsp"]:
         raise NotImplementedError("Multistart not yet supported for FJSP/JSSP")
+    elif _is_luop_env_name(env.name):
+        selected = _select_luop_start_actions(td, env, num_starts)
     else:
         # Environments with depot: we do not select the depot as a start node
         selected = (

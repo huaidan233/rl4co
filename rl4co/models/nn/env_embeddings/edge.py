@@ -39,7 +39,12 @@ def env_edge_embedding(env_name: str, config: dict) -> nn.Module:
         "pdp": TSPEdgeEmbedding,
         "mtsp": TSPEdgeEmbedding,
         "smtwtp": NoEdgeEmbedding,
+        "luop": TSPEdgeEmbedding,
         "lop": TSPEdgeEmbedding,
+        "lop_nearest": TSPEdgeEmbedding,
+        "lop_compatibility": TSPEdgeEmbedding,
+        "MAlop": TSPEdgeEmbedding,
+        "MAOpt": TSPEdgeEmbedding,
         "shpp": TSPEdgeEmbedding,
     }
 

@@ -5,7 +5,35 @@ import torch.nn.functional as F
 from tensordict.tensordict import TensorDict
 
 from rl4co.models.nn.ops import PositionalEncoding
+from rl4co.utils.multi_objective import normalize_weights
 from rl4co.utils.ops import batched_scatter_sum, cartesian_to_polar
+
+
+def prepare_lop_objective_weights(td: TensorDict, reference: torch.Tensor) -> torch.Tensor:
+    objective_weights = td.get("objective_weights", None)
+    if objective_weights is None:
+        objective_weights = reference.new_full((*td.batch_size, 2), 0.5)
+    else:
+        objective_weights = objective_weights.to(
+            device=reference.device,
+            dtype=reference.dtype,
+        )
+        objective_weights = normalize_weights(
+            objective_weights,
+            name="objective_weights",
+        )
+        if objective_weights.size(-1) != 2:
+            raise ValueError("objective_weights must have two objective dimensions")
+        if objective_weights.dim() == 1:
+            objective_weights = objective_weights.expand(*td.batch_size, -1)
+        elif objective_weights.shape[:-1] != td.batch_size:
+            try:
+                objective_weights = objective_weights.expand(*td.batch_size, -1)
+            except RuntimeError as exc:
+                raise ValueError(
+                    "objective_weights batch shape must match the TensorDict batch"
+                ) from exc
+    return objective_weights
 
 
 def env_init_embedding(env_name: str, config: dict) -> nn.Module:
@@ -40,7 +68,12 @@ def env_init_embedding(env_name: str, config: dict) -> nn.Module:
         "fjsp": FJSPInitEmbedding,
         "jssp": FJSPInitEmbedding,
         "mtvrp": MTVRPInitEmbedding,
+        "luop": lopInitEmbedding,
         "lop": lopInitEmbedding,
+        "lop_nearest": lopInitEmbedding,
+        "lop_compatibility": lopInitEmbedding,
+        "MAlop": lopInitEmbedding,
+        "MAOpt": lopInitEmbedding,
         "shpp": TSPInitEmbedding,
         "flp": FLPInitEmbedding,
         "mcp": MCPInitEmbedding,
@@ -118,49 +151,52 @@ class lopInitEmbedding(nn.Module):
     """Initial embedding for the Landuse Planning Problem (LUP).
     Embed the following node features to the embedding space:
         - locs: x, y coordinates of the nodes
-        - current_plan: init landtype of the nodes
-        - areas: area of the land
+        - landtype: type of land
+        - area: area of the land
     """
 
     def __init__(self, embed_dim, linear_bias=True):
         super(lopInitEmbedding, self).__init__()
-        self.landtype_dim = 8  # Number of land types
-        node_dim = 2 + self.landtype_dim + 1  # x, y, area
-        self.init_embed = nn.Linear(node_dim, embed_dim, bias=linear_bias)
+        self.landtype_dim = 8
+        # x, y, area, plan one-hot, unassigned flag, objective weights, constraint pressure
+        node_dim = 2 + 1 + self.landtype_dim + 1 + 2 + self.landtype_dim
+        self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
+
     def forward(self, td):
-        """
-        Args:
-            td (dict):
-                - "locs": tensor of shape [batch_size, num_nodes, 2]
-                - "current_plan": tensor of shape [batch_size, num_nodes] with integer values [0-7]
-                - "areas": tensor of shape [batch_size, num_nodes]
-        Returns:
-            out (tensor): shape [batch_size, num_nodes, embed_dim]
-        """
-
         locs = td["locs"]
-        areas = td["areas"].unsqueeze(-1)  # [batch_size, num_nodes, 1]
-        current_plan = td["current_plan"]  # [batch_size, num_nodes]
-
-        landtype_onehot = F.one_hot(current_plan, num_classes=self.landtype_dim).float()  # [batch_size, num_nodes, 8]
-        # One-hot encode the land types
-        # landtype_onehot = F.one_hot(td["init_plan"], num_classes=self.landtype_dim).float()
-        # Concatenate locs, landtype_onehot and area
-        # node_features = torch.cat((locs, td["areas"][..., None]), -1)
-        # node_features = self.init_embed(
-        #     torch.cat(
-        #         (
-        #             locs,
-        #             td["areas"][..., None],
-        #             td["current_plan"][..., None],
-        #         ),
-        #         -1,
-        #     )
-        # )
-        node_features = torch.cat((locs, landtype_onehot, areas), dim=-1)  # [batch_size, num_nodes, 11]
-        # Embed the concatenated node features
-        out = self.init_embed(node_features)
-        return out
+        current_plan = td.get("current_plan", td["init_plan"])
+        unassigned = current_plan < 0
+        safe_plan = current_plan.clamp(min=0)
+        landtype_onehot = F.one_hot(safe_plan, num_classes=self.landtype_dim).float()
+        landtype_onehot = landtype_onehot * (~unassigned).unsqueeze(-1).float()
+        objective_weights = prepare_lop_objective_weights(td, locs)
+        objective_weights = objective_weights.unsqueeze(-2).expand(
+            *locs.shape[:-1], objective_weights.size(-1)
+        )
+        constraint_pressure = td.get("constraint_pressure", None)
+        if constraint_pressure is None:
+            constraint_pressure = locs.new_zeros((*td.batch_size, self.landtype_dim))
+        constraint_pressure = constraint_pressure.to(
+            device=locs.device, dtype=locs.dtype
+        )
+        total_area = td["areas"].sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        area_ratio = td["areas"] / total_area
+        constraint_pressure = constraint_pressure / total_area
+        constraint_pressure = constraint_pressure.unsqueeze(-2).expand(
+            *locs.shape[:-1], constraint_pressure.size(-1)
+        )
+        node_features = torch.cat(
+            (
+                locs,
+                area_ratio[..., None],
+                landtype_onehot,
+                unassigned.unsqueeze(-1).float(),
+                objective_weights,
+                constraint_pressure,
+            ),
+            -1,
+        )
+        return self.init_embed(node_features)
 
 class VRPInitEmbedding(nn.Module):
     """Initial embedding for the Vehicle Routing Problems (VRP).

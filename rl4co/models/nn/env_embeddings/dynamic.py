@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
+from rl4co.models.nn.env_embeddings.init import prepare_lop_objective_weights
 from rl4co.utils.ops import gather_by_index
 from rl4co.utils.pylogger import get_pylogger
 
@@ -35,7 +37,12 @@ def env_dynamic_embedding(env_name: str, config: dict) -> nn.Module:
         "jssp": JSSPDynamicEmbedding,
         "fjsp": JSSPDynamicEmbedding,
         "mtvrp": StaticEmbedding,
-        "lop": StaticEmbedding,
+        "luop": LOPDynamicEmbedding,
+        "lop": LOPDynamicEmbedding,
+        "lop_nearest": LOPDynamicEmbedding,
+        "lop_compatibility": LOPDynamicEmbedding,
+        "MAlop": LOPDynamicEmbedding,
+        "MAOpt": LOPDynamicEmbedding,
     }
 
     if env_name not in embedding_registry:
@@ -56,6 +63,78 @@ class StaticEmbedding(nn.Module):
 
     def forward(self, td):
         return 0, 0, 0
+
+
+class LOPDynamicEmbedding(nn.Module):
+    """Dynamic embedding for the Landuse Optimization Problem (LOP)."""
+
+    def __init__(self, embed_dim, linear_bias=False):
+        super(LOPDynamicEmbedding, self).__init__()
+        self.num_types = 8
+        self.projection = nn.Linear(36, 3 * embed_dim, bias=linear_bias)
+
+    def forward(self, td):
+        current_plan = td["current_plan"]
+        areas = td["areas"]
+        unassigned = current_plan < 0
+        safe_plan = current_plan.clamp(min=0)
+        current_plan_onehot = F.one_hot(safe_plan, num_classes=self.num_types).float()
+        current_plan_onehot = current_plan_onehot * (~unassigned).unsqueeze(-1).float()
+
+        objective_weights = prepare_lop_objective_weights(td, areas)
+        objective_weights = objective_weights.unsqueeze(-2).expand(
+            *current_plan.shape, objective_weights.size(-1)
+        )
+        node_idx = torch.arange(current_plan.size(-1), device=areas.device).view(1, -1)
+        selected_parcel = node_idx.eq(td["current_node"].unsqueeze(-1))
+        selected_parcel = selected_parcel & td["i"].squeeze(-1).gt(0).unsqueeze(-1)
+        pending_type = td.get("pending_type_action", None)
+        if pending_type is None:
+            pending_type_onehot = areas.new_zeros((*current_plan.shape, self.num_types))
+        else:
+            pending_type = pending_type.long().clamp(0, self.num_types - 1)
+            pending_type_onehot = F.one_hot(
+                pending_type, num_classes=self.num_types
+            ).to(dtype=areas.dtype)
+            pending_type_onehot = pending_type_onehot.unsqueeze(-2).expand(
+                *current_plan.shape, self.num_types
+            )
+
+        target_ratios = td.get("target_ratios", None)
+        if target_ratios is None:
+            target_ratios = areas.new_zeros((*td.batch_size, self.num_types))
+        target_ratios = target_ratios.to(device=areas.device, dtype=areas.dtype)
+        area_by_type = (current_plan_onehot * areas.unsqueeze(-1)).sum(dim=-2)
+        total_area = areas.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        area_ratio_by_type = area_by_type / total_area
+        remaining_deficit = (target_ratios - area_ratio_by_type).clamp_min(0)
+        remaining_deficit = remaining_deficit.unsqueeze(-2).expand(
+            *current_plan.shape, self.num_types
+        )
+        constraint_pressure = td.get("constraint_pressure", None)
+        if constraint_pressure is None:
+            constraint_pressure = areas.new_zeros((*td.batch_size, self.num_types))
+        constraint_pressure = constraint_pressure.to(
+            device=areas.device, dtype=areas.dtype
+        )
+        constraint_pressure = constraint_pressure / total_area
+        constraint_pressure = constraint_pressure.unsqueeze(-2).expand(
+            *current_plan.shape, self.num_types
+        )
+
+        dynamic_features = torch.cat(
+            [
+                current_plan_onehot,
+                unassigned.unsqueeze(-1).float(),
+                objective_weights,
+                selected_parcel.unsqueeze(-1).to(dtype=areas.dtype),
+                pending_type_onehot,
+                remaining_deficit,
+                constraint_pressure,
+            ],
+            dim=-1,
+        )
+        return self.projection(dynamic_features).chunk(3, dim=-1)
 
 
 class SDVRPDynamicEmbedding(nn.Module):

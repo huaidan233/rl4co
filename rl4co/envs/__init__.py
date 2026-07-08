@@ -35,6 +35,10 @@ from rl4co.envs.scheduling import FFSPEnv, FJSPEnv, JSSPEnv, SMTWTPEnv
 # Urban planning
 from rl4co.envs.urbanplan.MAcityplan.env import MAlanduseOptEnv
 from rl4co.envs.urbanplan.cityplan.env import landuseOptEnv
+from rl4co.envs.urbanplan.cityplan.env_compatibility import (
+    landuseOptCompatibilityEnv,
+)
+from rl4co.envs.urbanplan.cityplan.env_nearest import landuseOptNearestEnv
 
 # Register environments
 ENV_REGISTRY = {
@@ -61,8 +65,12 @@ ENV_REGISTRY = {
     "mdcpdp": MDCPDPEnv,
     "mtvrp": MTVRPEnv,
     "tsp_kopt": TSPkoptEnv,
+    "luop": landuseOptEnv,
     "lop": landuseOptEnv,
+    "lop_nearest": landuseOptNearestEnv,
+    "lop_compatibility": landuseOptCompatibilityEnv,
     "MAlop": MAlanduseOptEnv,
+    "MAOpt": MAlanduseOptEnv,
 }
 
 

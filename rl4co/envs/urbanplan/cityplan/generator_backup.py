@@ -3,7 +3,6 @@ from typing import Callable, Union
 import torch
 from tensordict.tensordict import TensorDict
 
-from rl4co.data.utils import save_tensordict_to_npz
 from rl4co.envs.common.utils import Generator, get_sampler
 from torch.distributions import Exponential, Normal, Poisson, Uniform
 from rl4co.utils.pylogger import get_pylogger
@@ -36,7 +35,7 @@ class landuseOptGenerator(Generator):
         landtype: list = [0, 1, 2, 3, 4, 5, 6, 7],
         init_sol_type: str = "random",
         loc_distribution: Union[int, float, str, type, Callable] = Uniform,
-        area_distribution: Union[int, float, str, type, Callable] = Normal,
+        area_distribution: Union[int, float, str, type, Callable] = Uniform,
         **kwargs,
     ):
         self.num_loc = num_loc
@@ -57,103 +56,35 @@ class landuseOptGenerator(Generator):
         if kwargs.get("area_sampler", None) is not None:
             self.area_sampler = kwargs["area_sampler"]
         else:
-            # self.area_sampler = get_sampler(
-            #     "area", area_distribution, 0, 1, **kwargs
-            # )
             self.area_sampler = get_sampler(
-                "area", area_distribution, area_mean=1, area_std=.1, **kwargs
+                "area", area_distribution, 0, 1, **kwargs
             )
 
     def _generate(self, batch_size) -> TensorDict:
         # Sample locations
         locs = self.loc_sampler.sample((*batch_size, self.num_loc, 2))
-
         # Generate random areas in the range [0, 1]
         areas = self.area_sampler.sample((*batch_size, self.num_loc))
-
         # Normalize areas to make their sum equal to 1
         areas = areas / areas.sum(dim=-1, keepdim=True)
 
         # init plans
         init_plan = torch.ones((*batch_size, self.num_loc), dtype=torch.int64)
-
         # Randomly select 'num_fixed' indices for each batch without replacement
-        fixed_indices = torch.rand((*batch_size, self.num_loc)).argsort(dim=-1)[
-            ..., : self.num_fixed
-        ]
+        fixed_indices = torch.rand((*batch_size, self.num_loc)).argsort(dim=-1)[:, :self.num_fixed]
 
         # Initialize the fixed mask with all True values
         fixed_mask = torch.ones((*batch_size, self.num_loc), dtype=torch.bool)
 
         # Assign fixed nodes to be "Green Space" or "Hospital"
         half_fixed = self.num_fixed // 2
-        init_plan.scatter_(
-            -1,
-            fixed_indices[..., :half_fixed],
-            torch.full_like(
-                fixed_indices[..., :half_fixed],
-                6,
-                dtype=torch.int64,
-            ),
-        )
-        init_plan.scatter_(
-            -1,
-            fixed_indices[..., half_fixed:],
-            torch.full_like(
-                fixed_indices[..., half_fixed:],
-                4,
-                dtype=torch.int64,
-            ),
-        )
+        init_plan.scatter_(1, fixed_indices[:, :half_fixed],
+                           torch.full_like(fixed_indices[:, :half_fixed], 4, dtype=torch.int64))
+        init_plan.scatter_(1, fixed_indices[:, half_fixed:],
+                           torch.full_like(fixed_indices[:, half_fixed:], 6, dtype=torch.int64))
 
         # Update the fixed mask to False for fixed indices
-        fixed_mask.scatter_(
-            -1,
-            fixed_indices,
-            torch.tensor(False, dtype=torch.bool).expand_as(fixed_indices),
-        )
-
-        # Create masks for Hospitals and Green Spaces
-        hospital_mask = init_plan == 6  # Hospitals have a value of 6
-        greenspace_mask = init_plan == 4  # Green Spaces have a value of 4
-        non_fixed_mask = ~(hospital_mask | greenspace_mask)
-
-        preferred_fixed_areas = (
-            hospital_mask.to(areas.dtype) * 0.1818
-            + greenspace_mask.to(areas.dtype) * 0.0504
-        )
-
-        # Compute total fixed area for each batch
-        fixed_area = preferred_fixed_areas.sum(dim=-1)
-
-        # Compute remaining area to distribute among non-fixed nodes
-        remaining_area = 1 - fixed_area
-
-        # Sum of areas of non-fixed nodes before scaling
-        areas_non_fixed_sum = (areas * non_fixed_mask).sum(dim=-1, keepdim=True)
-        has_non_fixed = non_fixed_mask.any(dim=-1, keepdim=True)
-        can_preserve_fixed_areas = has_non_fixed & remaining_area.unsqueeze(-1).gt(0)
-
-        eps = torch.finfo(areas.dtype).eps
-        scaling_factor = torch.where(
-            can_preserve_fixed_areas,
-            remaining_area.unsqueeze(-1) / areas_non_fixed_sum.clamp_min(eps),
-            torch.zeros_like(areas_non_fixed_sum),
-        )
-
-        # Adjust non-fixed areas while preserving fixed-area priors when possible.
-        areas_with_fixed_priors = (
-            areas * non_fixed_mask * scaling_factor + preferred_fixed_areas
-        )
-        fallback_areas = areas * non_fixed_mask + preferred_fixed_areas
-        fallback_areas = fallback_areas / fallback_areas.sum(
-            dim=-1, keepdim=True
-        ).clamp_min(eps)
-        areas = torch.where(
-            can_preserve_fixed_areas,
-            areas_with_fixed_priors,
-            fallback_areas,
-        )
+        fixed_mask.scatter_(1, fixed_indices, torch.tensor(False, dtype=torch.bool).expand_as(fixed_indices))
 
         # fixed_node = torch.randint(0, self.num_loc, (*batch_size, self.num_fixed))
         # # Randomly select 'num_fixed' points to be inaccessible for each batch
@@ -169,14 +100,6 @@ class landuseOptGenerator(Generator):
         # fixed_indices = torch.rand((*batch_size, self.num_loc)).argsort(dim=-1)[:, :self.num_fixed]
         # fixed_mask.scatter_(1, fixed_indices, torch.tensor(False, dtype=torch.bool).expand_as(fixed_indices))
 
-        # adjacency_list = torch.zeros((*batch_size, self.num_loc, 5), dtype=torch.int64)
-        # distances = torch.zeros((*batch_size, self.num_loc, self.num_loc))
-        # for i in range(batch_size[0]):
-        #     distances[i] = torch.cdist(locs[i], locs[i])
-        #     for j in range(self.num_loc):
-        #         sorted_indices = torch.argsort(distances[i, j])[1:5]  # Skip the first one (distance to itself)
-        #         adjacency_list[i, j, 0] = 4
-        #         adjacency_list[i, j, 1:] = sorted_indices
         # for i in range(batch_size[0]):
         #
         #     # Assign fixed nodes to be "Green Space" or "Hospital"
@@ -187,18 +110,16 @@ class landuseOptGenerator(Generator):
         # Calculate adjacency list for the nearest 4 neighbors
         # adjacency_list[0] is the count of neighbors
         # Calculate distances between all locations
-        # temptd = TensorDict(
-        #     {
-        #         "locs": locs,
-        #         "areas": areas,
-        #         "init_plan": init_plan,  # "init_plans": "Green Space" or "Hospital"
-        #         "fixed_mask": fixed_mask,
-        #         # "adjacency_list": adjacency_list,
-        #         # "distances": distances
-        #     },
-        #     batch_size=batch_size,
-        # )
-        # save_tensordict_to_npz(temptd, r"D:\DRLtest\rl4co_tensor\rl4co\tests\mixedata\mixed_luoptRA_300.npz")
+
+        # adjacency_list = torch.zeros((*batch_size, self.num_loc, 5), dtype=torch.int64)
+        # distances = torch.zeros((*batch_size, self.num_loc, self.num_loc))
+        # for i in range(batch_size[0]):
+        #     distances[i] = torch.cdist(locs[i], locs[i])
+        #     for j in range(self.num_loc):
+        #         sorted_indices = torch.argsort(distances[i, j])[1:5]  # Skip the first one (distance to itself)
+        #         adjacency_list[i, j, 0] = 4
+        #         adjacency_list[i, j, 1:] = sorted_indices
+
         return TensorDict(
             {
                 "locs": locs,
@@ -208,7 +129,6 @@ class landuseOptGenerator(Generator):
             },
             batch_size=batch_size,
         )
-
 
     def _get_initial_solutions(self, coordinates):
         """

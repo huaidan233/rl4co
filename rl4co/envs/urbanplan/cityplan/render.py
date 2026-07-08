@@ -47,6 +47,8 @@ def render(td, actions=None,ax=None,planout=None,reward=0):
         else:
             break
     strplan = init.map_to_strings(latest_plan, landtype)
+    # if locs.shape[0] == 221:
+    #     print(strplan)
     plan_colors = [landusePalette.get(p, 'gray') for p in strplan]
 
     # Plot the visited nodes with colors based on current_plan and sizes based on areas
@@ -72,8 +74,7 @@ def render(td, actions=None,ax=None,planout=None,reward=0):
 
 def calc_next_type(current_plan, landtypes, areas):
     strstate = init.map_to_strings(current_plan, landtypes)
-    tios = [0.051420568227290915, 0.20078031212484992, 0.05712284913965586, 0.42276910764305725, 0.046318527410964386,
-            0.03221288515406162, 0.06562625050020007, 0.12374949979991996]
+    tios = [0.13593291, 0.22783339,0.051964402, 0.11997096,0.11003187,0.020120958, 0.18186955,0.15227593]
     land_ratios = {}
 
     for land in landtypes:
